@@ -1,6 +1,6 @@
 """
 DAG Airflow: Bronze CSV → Staging → Silver OMOP
-Version 3.1.2 - Nessie Optimized (Stable Staging)
+Version 3.1.3 - Nessie Stable (No-Metadata-Change Pattern)
 """
 from airflow import DAG
 from airflow.operators.python import PythonOperator, ShortCircuitOperator
@@ -28,7 +28,7 @@ default_args = {
     'depends_on_past': False,
     'start_date': datetime(2025, 12, 22),
     'retries': 2,
-    'retry_delay': timedelta(minutes=5),
+    'retry_delay': timedelta(minutes=2), # Reduced for faster recovery
 }
 
 dag = DAG(
@@ -39,11 +39,11 @@ dag = DAG(
     tags=['eds', 'omop', 'incremental', 'nessie'],
 )
 
-# --- Task 1: Initialize Metadata ---
+# --- Task 1: Tracking ---
 create_tracking_table = SQLExecuteQueryOperator(
     task_id='create_tracking_table',
     conn_id='trino_default',
-    sql=f"""
+    sql="""
         CREATE TABLE IF NOT EXISTS iceberg.silver._file_tracking (
             file_name VARCHAR,
             processed_at TIMESTAMP(3) WITH TIME ZONE,
@@ -72,7 +72,6 @@ def check_for_new_files(**context):
     files_to_process = new_files[:10]
     
     if not files_to_process:
-        logging.info("No new files found.")
         return False
         
     context['ti'].xcom_push(key='files_to_process', value=files_to_process)
@@ -84,9 +83,9 @@ identify_files_task = ShortCircuitOperator(
     dag=dag,
 )
 
-# --- Task 3: Prepare Staging (Nessie Optimized: No DROP) ---
-# We use CREATE IF NOT EXISTS followed by DELETE.
-# This keeps the Nessie table reference alive and prevents 404/Conflicts.
+# --- Task 3: Prepare Staging (Nessie Safe) ---
+# We use CREATE IF NOT EXISTS. If it exists, we just DELETE data.
+# This prevents Nessie commit conflicts on the table schema.
 prepare_staging = SQLExecuteQueryOperator(
     task_id='prepare_staging',
     conn_id='trino_default',
@@ -162,7 +161,7 @@ update_tracking_task = PythonOperator(
     dag=dag,
 )
 
-# --- Task 7: Cleanup (Truncate instead of Drop) ---
+# --- Task 7: Cleanup (Stable Truncate) ---
 cleanup_staging = SQLExecuteQueryOperator(
     task_id='cleanup_staging',
     conn_id='trino_default',
@@ -170,4 +169,5 @@ cleanup_staging = SQLExecuteQueryOperator(
     dag=dag,
 )
 
+# Dependencies
 create_tracking_table >> identify_files_task >> prepare_staging >> load_staging_task >> dbt_run >> update_tracking_task >> cleanup_staging
