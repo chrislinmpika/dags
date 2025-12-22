@@ -37,7 +37,7 @@ dag = DAG(
     'bronze_to_silver_omop',
     default_args=default_args,
     description='Load CSV from Bronze to Silver OMOP via staging',
-    schedule_interval='0 */6 * * *',  # Toutes les 6 heures
+    schedule='0 */6 * * *',
     catchup=False,
     tags=['eds', 'omop', 'incremental'],
 )
