@@ -1,6 +1,6 @@
 """
 DAG Airflow: Bronze CSV → Staging → Silver OMOP
-Version 3.1.1 - Production Ready (Fixed Typo & Atomic Staging)
+Version 3.1.2 - Nessie Optimized (Stable Staging)
 """
 from airflow import DAG
 from airflow.operators.python import PythonOperator, ShortCircuitOperator
@@ -12,17 +12,13 @@ import logging
 from minio import Minio
 from trino.dbapi import connect
 
-# ============================================================================
 # Configuration
-# ============================================================================
 MINIO_ENDPOINT = "minio-api.ns-data-platform.svc.cluster.local:9000"
 MINIO_ACCESS_KEY = "minio"
 MINIO_SECRET_KEY = "minio123"
-
 TRINO_HOST = "my-trino-trino.ns-data-platform.svc.cluster.local"
 TRINO_PORT = 8080
 TRINO_USER = "trino"
-
 BRONZE_BUCKET = "bronze"
 SILVER_BUCKET = "silver"
 BATCH_SIZE = 50000
@@ -38,10 +34,9 @@ default_args = {
 dag = DAG(
     'bronze_to_silver_omop_v2',
     default_args=default_args,
-    description='Pipeline incremental robuste avec Iceberg et Idempotence',
     schedule='0 */6 * * *',
     catchup=False,
-    tags=['eds', 'omop', 'incremental', 'production'],
+    tags=['eds', 'omop', 'incremental', 'nessie'],
 )
 
 # --- Task 1: Initialize Metadata ---
@@ -54,10 +49,7 @@ create_tracking_table = SQLExecuteQueryOperator(
             processed_at TIMESTAMP(3) WITH TIME ZONE,
             row_count BIGINT,
             status VARCHAR
-        ) WITH (
-            format = 'PARQUET',
-            location = 's3://{SILVER_BUCKET}/_metadata/file_tracking/'
-        )
+        ) WITH (format = 'PARQUET')
     """,
     dag=dag,
 )
@@ -80,7 +72,7 @@ def check_for_new_files(**context):
     files_to_process = new_files[:10]
     
     if not files_to_process:
-        logging.info("No new files to process.")
+        logging.info("No new files found.")
         return False
         
     context['ti'].xcom_push(key='files_to_process', value=files_to_process)
@@ -92,19 +84,21 @@ identify_files_task = ShortCircuitOperator(
     dag=dag,
 )
 
-# --- Task 3: Prepare Staging (Atomic Replace) ---
+# --- Task 3: Prepare Staging (Nessie Optimized: No DROP) ---
+# We use CREATE IF NOT EXISTS followed by DELETE.
+# This keeps the Nessie table reference alive and prevents 404/Conflicts.
 prepare_staging = SQLExecuteQueryOperator(
     task_id='prepare_staging',
     conn_id='trino_default',
     sql="""
-        CREATE OR REPLACE TABLE iceberg.silver.staging_biological_results (
+        CREATE TABLE IF NOT EXISTS iceberg.silver.staging_biological_results (
             visit_id VARCHAR, visit_date_utc VARCHAR, visit_rank VARCHAR, 
             patient_id VARCHAR, report_id VARCHAR, laboratory_uuid VARCHAR, 
             sub_laboratory_uuid VARCHAR, site_laboratory_uuid VARCHAR, 
             source_file VARCHAR, load_timestamp TIMESTAMP(3) WITH TIME ZONE
-        ) WITH (
-            format = 'PARQUET'
-        )
+        ) WITH (format = 'PARQUET');
+
+        DELETE FROM iceberg.silver.staging_biological_results;
     """,
     dag=dag,
 )
@@ -118,7 +112,6 @@ def load_csv_to_staging(**context):
     try:
         cursor = conn.cursor()
         for f in files:
-            logging.info(f"Streaming {f} from MinIO to Trino...")
             obj = minio_client.get_object(BRONZE_BUCKET, f)
             df = pd.read_csv(obj)
             df['source_file'] = f
@@ -141,7 +134,7 @@ load_staging_task = PythonOperator(
     dag=dag,
 )
 
-# --- Task 5: DBT Transformations ---
+# --- Task 5: DBT ---
 dbt_run = BashOperator(
     task_id='dbt_transform_to_silver',
     bash_command='cd /opt/airflow/dbt/eds_omop && dbt run --models silver.*',
@@ -169,14 +162,12 @@ update_tracking_task = PythonOperator(
     dag=dag,
 )
 
-# --- Task 7: Cleanup ---
+# --- Task 7: Cleanup (Truncate instead of Drop) ---
 cleanup_staging = SQLExecuteQueryOperator(
     task_id='cleanup_staging',
     conn_id='trino_default',
-    sql="DROP TABLE IF EXISTS iceberg.silver.staging_biological_results",
+    sql="DELETE FROM iceberg.silver.staging_biological_results",
     dag=dag,
 )
 
-# --- Dependencies ---
-# Fixed the typo here: cleanup_stagingk -> cleanup_staging
 create_tracking_table >> identify_files_task >> prepare_staging >> load_staging_task >> dbt_run >> update_tracking_task >> cleanup_staging
