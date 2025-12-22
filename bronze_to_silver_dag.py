@@ -98,12 +98,13 @@ identify_files_task = ShortCircuitOperator(
 # --- Task 3: Prepare Staging (FIXED: Managed Path) ---
 # We remove the hardcoded 'location' so Iceberg manages the directory.
 # This prevents "Path already exists" errors on retries.
+# Task 3: Updated for Version 6.1 (Atomic Replace)
 prepare_staging = SQLExecuteQueryOperator(
     task_id='prepare_staging',
     conn_id='trino_default',
     sql="""
-        DROP TABLE IF EXISTS iceberg.silver.staging_biological_results;
-        CREATE TABLE iceberg.silver.staging_biological_results (
+        -- Use CREATE OR REPLACE for atomicity in Iceberg
+        CREATE OR REPLACE TABLE iceberg.silver.staging_biological_results (
             visit_id VARCHAR, visit_date_utc VARCHAR, visit_rank VARCHAR, 
             patient_id VARCHAR, report_id VARCHAR, laboratory_uuid VARCHAR, 
             sub_laboratory_uuid VARCHAR, site_laboratory_uuid VARCHAR, 
@@ -188,4 +189,4 @@ cleanup_staging = SQLExecuteQueryOperator(
 )
 
 # --- Dependencies ---
-create_tracking_table >> identify_files_task >> prepare_staging >> load_staging_task >> dbt_run >> update_tracking_task >> cleanup_staging
+create_tracking_table >> identify_files_task >> prepare_staging >> load_staging_task >> dbt_run >> update_tracking_task >> cleanup_stagingk
