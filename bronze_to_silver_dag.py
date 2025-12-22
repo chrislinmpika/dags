@@ -1,11 +1,13 @@
 """
 DAG Airflow: Bronze CSV → Staging → Silver OMOP
 Pipeline incrémental avec tracking des fichiers traités
+Version compatible Airflow 3.0.2
 """
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
-from airflow.providers.trino.operators.trino import TrinoOperator
+# Utilisation du nouvel opérateur SQL standard (le TrinoOperator est déprécié/supprimé)
+from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from datetime import datetime, timedelta
 import pandas as pd
 from minio import Minio
@@ -35,7 +37,7 @@ dag = DAG(
     'bronze_to_silver_omop',
     default_args=default_args,
     description='Load CSV from Bronze to Silver OMOP via staging',
-    schedule_interval='0 */6 * * *',  # Every 6 hours
+    schedule_interval='0 */6 * * *',  # Toutes les 6 heures
     catchup=False,
     tags=['eds', 'omop', 'incremental'],
 )
@@ -44,9 +46,9 @@ dag = DAG(
 # Task 1: Créer la table de tracking (si nécessaire)
 # ============================================================================
 
-create_tracking_table = TrinoOperator(
+create_tracking_table = SQLExecuteQueryOperator(
     task_id='create_tracking_table',
-    trino_conn_id='trino_default',
+    conn_id='trino_default',
     sql="""
         CREATE TABLE IF NOT EXISTS iceberg.silver._file_tracking (
             file_name VARCHAR,
@@ -82,8 +84,8 @@ def identify_new_files(**context):
     all_files = [obj.object_name for obj in objects if obj.object_name.endswith('.csv')]
     logging.info(f"Found {len(all_files)} CSV files in Bronze")
     
-    # Récupérer les fichiers déjà traités
-    logging.info("Connecting to Trino...")
+    # Récupérer les fichiers déjà traités via la DB API Trino
+    logging.info("Connecting to Trino via DBAPI...")
     conn = connect(
         host=TRINO_HOST,
         port=TRINO_PORT,
@@ -111,7 +113,7 @@ def identify_new_files(**context):
     context['ti'].xcom_push(key='files_to_process', value=files_to_process)
     
     if not files_to_process:
-        logging.info("No new files to process, skipping downstream tasks")
+        logging.info("No new files to process")
         return "skip"
     
     return "process"
@@ -126,9 +128,9 @@ identify_files_task = PythonOperator(
 # Task 3: Créer/Vider la table staging
 # ============================================================================
 
-prepare_staging = TrinoOperator(
+prepare_staging = SQLExecuteQueryOperator(
     task_id='prepare_staging',
-    trino_conn_id='trino_default',
+    conn_id='trino_default',
     sql="""
         -- Supprimer l'ancienne table staging si elle existe
         DROP TABLE IF EXISTS memory.default.staging_biological_results;
@@ -168,7 +170,6 @@ def load_csv_to_staging(**context):
     
     logging.info(f"Processing {len(files_to_process)} files")
     
-    # Connexions
     minio_client = Minio(
         MINIO_ENDPOINT,
         access_key=MINIO_ACCESS_KEY,
@@ -197,16 +198,16 @@ def load_csv_to_staging(**context):
             
             logging.info(f"  Read {len(df)} rows from {file_name}")
             
-            # Ajouter les colonnes metadata
+            # Metadata
             df['source_file'] = file_name
             df['load_timestamp'] = datetime.now()
             
-            # Convertir toutes les colonnes en string sauf metadata
+            # Nettoyage types
             for col in df.columns:
                 if col not in ['source_file', 'load_timestamp']:
                     df[col] = df[col].astype(str)
             
-            # Insérer dans staging par batch
+            # Insertion par batch
             insert_query = """
                 INSERT INTO staging_biological_results 
                 (visit_id, visit_date_utc, visit_rank, patient_id, report_id, 
@@ -219,17 +220,13 @@ def load_csv_to_staging(**context):
                 batch = df.iloc[i:i+BATCH_SIZE]
                 rows = [tuple(row) for row in batch.values]
                 cursor.executemany(insert_query, rows)
-                logging.info(f"  Inserted batch {i//BATCH_SIZE + 1} ({len(rows)} rows)")
             
             total_rows += len(df)
             
-            # Marquer le fichier comme traité
+            # Mise à jour tracking via DBAPI
             tracking_conn = connect(
-                host=TRINO_HOST,
-                port=TRINO_PORT,
-                user="trino",
-                catalog="iceberg",
-                schema="silver"
+                host=TRINO_HOST, port=TRINO_PORT, user="trino",
+                catalog="iceberg", schema="silver"
             )
             tracking_cursor = tracking_conn.cursor()
             tracking_cursor.execute(
@@ -243,14 +240,10 @@ def load_csv_to_staging(**context):
             
         except Exception as e:
             logging.error(f"  ❌ Error processing {file_name}: {e}")
-            
-            # Marquer comme failed
+            # Tracking erreur
             tracking_conn = connect(
-                host=TRINO_HOST,
-                port=TRINO_PORT,
-                user="trino",
-                catalog="iceberg",
-                schema="silver"
+                host=TRINO_HOST, port=TRINO_PORT, user="trino",
+                catalog="iceberg", schema="silver"
             )
             tracking_cursor = tracking_conn.cursor()
             tracking_cursor.execute(
@@ -259,13 +252,10 @@ def load_csv_to_staging(**context):
             )
             tracking_cursor.close()
             tracking_conn.close()
-            
             continue
     
     cursor.close()
     conn.close()
-    
-    logging.info(f"Total rows loaded to staging: {total_rows}")
     context['ti'].xcom_push(key='total_rows_loaded', value=total_rows)
 
 load_staging_task = PythonOperator(
@@ -278,9 +268,9 @@ load_staging_task = PythonOperator(
 # Task 5: Vérifier que staging contient des données
 # ============================================================================
 
-check_staging = TrinoOperator(
+check_staging = SQLExecuteQueryOperator(
     task_id='check_staging_has_data',
-    trino_conn_id='trino_default',
+    conn_id='trino_default',
     sql="""
         SELECT 
             COUNT(*) as row_count,
@@ -291,7 +281,7 @@ check_staging = TrinoOperator(
 )
 
 # ============================================================================
-# Task 6: Exécuter dbt pour transformer staging → silver
+# Task 6: dbt transformation
 # ============================================================================
 
 dbt_run = BashOperator(
@@ -301,7 +291,7 @@ dbt_run = BashOperator(
 )
 
 # ============================================================================
-# Task 7: Exécuter les tests dbt
+# Task 7: dbt tests
 # ============================================================================
 
 dbt_test = BashOperator(
@@ -311,18 +301,18 @@ dbt_test = BashOperator(
 )
 
 # ============================================================================
-# Task 8: Nettoyer la table staging
+# Task 8: Nettoyage
 # ============================================================================
 
-cleanup_staging = TrinoOperator(
+cleanup_staging = SQLExecuteQueryOperator(
     task_id='cleanup_staging',
-    trino_conn_id='trino_default',
+    conn_id='trino_default',
     sql="DROP TABLE IF EXISTS memory.default.staging_biological_results",
     dag=dag,
 )
 
 # ============================================================================
-# Pipeline DAG
+# Pipeline
 # ============================================================================
 
 create_tracking_table >> identify_files_task >> prepare_staging >> load_staging_task >> check_staging >> dbt_run >> dbt_test >> cleanup_staging
