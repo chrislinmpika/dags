@@ -117,13 +117,22 @@ prepare_staging = SQLExecuteQueryOperator(
     task_id='prepare_staging',
     conn_id='trino_default',
     sql="""
+        -- Suppression de la table temporaire en mémoire
         DROP TABLE IF EXISTS memory.default.staging_biological_results;
+        
+        -- Création sans le bloc WITH (interdit pour le connecteur memory)
         CREATE TABLE memory.default.staging_biological_results (
-            visit_id VARCHAR, visit_date_utc VARCHAR, visit_rank VARCHAR, 
-            patient_id VARCHAR, report_id VARCHAR, laboratory_uuid VARCHAR, 
-            sub_laboratory_uuid VARCHAR, site_laboratory_uuid VARCHAR, 
-            source_file VARCHAR, load_timestamp TIMESTAMP(3) WITH TIME ZONE
-        ) WITH (format = 'PARQUET')
+            visit_id VARCHAR,
+            visit_date_utc VARCHAR,
+            visit_rank VARCHAR,
+            patient_id VARCHAR,
+            report_id VARCHAR,
+            laboratory_uuid VARCHAR,
+            sub_laboratory_uuid VARCHAR,
+            site_laboratory_uuid VARCHAR,
+            source_file VARCHAR,
+            load_timestamp TIMESTAMP(3) WITH TIME ZONE
+        )
     """,
     dag=dag,
 )
