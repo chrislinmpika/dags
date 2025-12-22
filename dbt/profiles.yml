@@ -1,0 +1,14 @@
+# profiles.yml
+trino_eds:
+  target: prod
+  outputs:
+    prod:
+      type: trino
+      method: none
+      host: my-trino-trino.ns-data-platform.svc.cluster.local
+      port: 8080
+      database: iceberg
+      schema: silver
+      threads: 4
+      session_properties:
+        query_max_execution_time: 1h

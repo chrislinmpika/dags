@@ -1,0 +1,36 @@
+# models/staging/sources.yml
+version: 2
+
+sources:
+  - name: staging
+    database: memory
+    schema: default
+    description: "Tables temporaires chargées depuis Bronze CSV par Airflow"
+    
+    tables:
+      - name: staging_biological_results
+        description: "Données brutes des résultats biologiques"
+        columns:
+          - name: visit_id
+            description: "Identifiant de la visite"
+            tests:
+              - not_null
+          
+          - name: patient_id
+            description: "Identifiant du patient"
+            tests:
+              - not_null
+          
+          - name: visit_date_utc
+            description: "Date de la visite (string)"
+            tests:
+              - not_null
+          
+          - name: report_id
+            description: "Identifiant du rapport biologique"
+          
+          - name: source_file
+            description: "Nom du fichier CSV source"
+          
+          - name: load_timestamp
+            description: "Timestamp du chargement dans staging"
