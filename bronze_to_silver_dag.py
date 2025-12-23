@@ -69,7 +69,7 @@ def check_for_new_files(**context):
         conn.close()
     
     new_files = [f for f in all_files if f not in processed_files]
-    files_to_process = new_files[:3]  # Reduced batch size to avoid memory issues
+    files_to_process = new_files[:1]  # Process one file at a time to avoid storage issues
     
     if not files_to_process:
         return False
@@ -143,12 +143,16 @@ def load_csv_to_staging(**context):
         cursor.execute("DELETE FROM staging_biological_results")
         print("✅ Staging table prepared and cleaned")
 
+        # Force commit to clean up metadata immediately
+        cursor.execute("CALL iceberg.system.remove_orphan_files('iceberg.silver.staging_biological_results')")
+        print("🧹 Orphan metadata files cleaned")
+
         for f in files:
             print(f"📄 Processing file: {f}")
             obj = minio_client.get_object(BRONZE_BUCKET, f)
 
             # STREAMING SOLUTION: Process CSV in chunks to avoid memory overflow
-            chunk_size = 5000  # Small chunks to fit in memory
+            chunk_size = 2500  # Smaller chunks to reduce storage pressure
             chunk_count = 0
 
             for chunk_df in pd.read_csv(obj, chunksize=chunk_size):
