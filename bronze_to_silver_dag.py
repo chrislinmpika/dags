@@ -9,6 +9,7 @@ from airflow.operators.bash import BashOperator
 from datetime import datetime, timedelta
 import pandas as pd
 import logging
+import time
 from minio import Minio
 from trino.dbapi import connect
 
@@ -162,10 +163,26 @@ def load_csv_to_staging(**context):
                     if col not in ['source_file', 'load_timestamp']:
                         chunk_df[col] = chunk_df[col].astype(str)
 
-                # Insert chunk with correct number of placeholders
+                # Insert chunk with Iceberg conflict retry logic
                 insert_sql = "INSERT INTO staging_biological_results VALUES (" + ",".join(["?"] * len(chunk_df.columns)) + ")"
-                for row in chunk_df.values:
-                    cursor.execute(insert_sql, tuple(row))
+
+                # Retry logic for Nessie/Iceberg ref conflicts
+                max_retries = 3
+                retry_count = 0
+
+                while retry_count <= max_retries:
+                    try:
+                        for row in chunk_df.values:
+                            cursor.execute(insert_sql, tuple(row))
+                        break  # Success, exit retry loop
+
+                    except Exception as e:
+                        if "ref hash is out of date" in str(e) and retry_count < max_retries:
+                            retry_count += 1
+                            print(f"    ⚠️ Ref conflict retry {retry_count}/{max_retries}")
+                            time.sleep(2 ** retry_count)  # Exponential backoff
+                        else:
+                            raise  # Re-raise if not a ref conflict or max retries reached
 
                 print(f"  ✅ Chunk {chunk_count}: {len(chunk_df)} rows inserted")
 
