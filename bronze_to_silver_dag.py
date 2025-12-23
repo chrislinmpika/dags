@@ -93,10 +93,35 @@ prepare_staging = SQLExecuteQueryOperator(
         CREATE SCHEMA IF NOT EXISTS iceberg.silver;
 
         CREATE TABLE IF NOT EXISTS iceberg.silver.staging_biological_results (
-            visit_id VARCHAR, visit_date_utc VARCHAR, visit_rank VARCHAR,
-            patient_id VARCHAR, report_id VARCHAR, laboratory_uuid VARCHAR,
-            sub_laboratory_uuid VARCHAR, site_laboratory_uuid VARCHAR,
-            source_file VARCHAR, load_timestamp TIMESTAMP(3) WITH TIME ZONE
+            visit_id VARCHAR,
+            visit_date_utc VARCHAR,
+            visit_rank VARCHAR,
+            patient_id VARCHAR,
+            report_id VARCHAR,
+            laboratory_uuid VARCHAR,
+            sub_laboratory_uuid VARCHAR,
+            site_laboratory_uuid VARCHAR,
+            internal_test_id VARCHAR,
+            debug_external_test_id VARCHAR,
+            debug_external_test_scope VARCHAR,
+            sampling_datetime_utc VARCHAR,
+            sampling_datetime_timezone VARCHAR,
+            result_datetime_utc VARCHAR,
+            result_datetime_timezone VARCHAR,
+            normality VARCHAR,
+            value_type VARCHAR,
+            internal_numerical_value VARCHAR,
+            internal_numerical_unit VARCHAR,
+            internal_numerical_unit_system VARCHAR,
+            internal_numerical_reference_min VARCHAR,
+            internal_numerical_reference_max VARCHAR,
+            internal_categorical_qualification VARCHAR,
+            internal_categorical_specification VARCHAR,
+            internal_antibiogram_bacterium_id VARCHAR,
+            range_type VARCHAR,
+            report_date_utc VARCHAR,
+            source_file VARCHAR,
+            load_timestamp TIMESTAMP(3) WITH TIME ZONE
         ) WITH (format = 'PARQUET');
 
         DELETE FROM iceberg.silver.staging_biological_results;
@@ -122,7 +147,7 @@ def load_csv_to_staging(**context):
                 if col not in ['source_file', 'load_timestamp']:
                     df[col] = df[col].astype(str)
             
-            insert_sql = "INSERT INTO staging_biological_results VALUES (?,?,?,?,?,?,?,?,?,?)"
+            insert_sql = "INSERT INTO staging_biological_results VALUES (" + ",".join(["?"] * 29) + ")"
             for i in range(0, len(df), BATCH_SIZE):
                 batch = df.iloc[i:i+BATCH_SIZE]
                 cursor.executemany(insert_sql, [tuple(r) for r in batch.values])
