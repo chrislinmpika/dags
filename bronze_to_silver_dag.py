@@ -92,7 +92,9 @@ prepare_staging = SQLExecuteQueryOperator(
     sql="""
         CREATE SCHEMA IF NOT EXISTS iceberg.silver;
 
-        CREATE TABLE IF NOT EXISTS iceberg.silver.staging_biological_results (
+        DROP TABLE IF EXISTS iceberg.silver.staging_biological_results;
+
+        CREATE TABLE iceberg.silver.staging_biological_results (
             visit_id VARCHAR,
             visit_date_utc VARCHAR,
             visit_rank VARCHAR,
