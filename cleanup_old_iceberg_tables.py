@@ -28,28 +28,27 @@ def cleanup_staging_tables():
         print(f"📁 Found {len(staging_objects)} staging table files to clean up")
 
         if staging_objects:
-            # Delete staging table objects in batches
-            batch_size = 1000
+            # Delete staging table objects one by one
             deleted_count = 0
+            error_count = 0
 
-            for i in range(0, len(staging_objects), batch_size):
-                batch = staging_objects[i:i+batch_size]
-                object_names = [obj.object_name for obj in batch]
+            print(f"🗑️ Starting deletion of {len(staging_objects)} files...")
 
+            for i, obj in enumerate(staging_objects):
                 try:
-                    errors = client.remove_objects(BUCKET_NAME, object_names)
-                    error_count = len(list(errors))
+                    client.remove_object(BUCKET_NAME, obj.object_name)
+                    deleted_count += 1
 
-                    if error_count > 0:
-                        print(f"⚠️ Batch {i//batch_size + 1}: {error_count} errors")
-                    else:
-                        deleted_count += len(object_names)
-                        print(f"✅ Batch {i//batch_size + 1}: Deleted {len(object_names)} files")
+                    if i % 1000 == 0:  # Progress update every 1000 files
+                        print(f"   Progress: {i+1}/{len(staging_objects)} ({deleted_count} deleted)")
 
-                except Exception as e:
-                    print(f"❌ Error in batch {i//batch_size + 1}: {e}")
+                except S3Error as e:
+                    error_count += 1
+                    if error_count <= 10:  # Show first 10 errors only
+                        print(f"⚠️ Error deleting {obj.object_name}: {e}")
 
             print(f"✅ Total deleted: {deleted_count} staging files")
+            print(f"⚠️ Total errors: {error_count} files")
 
         # Check remaining storage usage
         total_objects = list(client.list_objects(BUCKET_NAME, recursive=True))
