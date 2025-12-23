@@ -90,42 +90,6 @@ prepare_staging = SQLExecuteQueryOperator(
     conn_id='trino_default',
     sql="""
         CREATE SCHEMA IF NOT EXISTS iceberg.silver;
-
-        DROP TABLE IF EXISTS iceberg.silver.staging_biological_results;
-
-        CREATE TABLE iceberg.silver.staging_biological_results (
-            visit_id VARCHAR,
-            visit_date_utc VARCHAR,
-            visit_rank VARCHAR,
-            patient_id VARCHAR,
-            report_id VARCHAR,
-            laboratory_uuid VARCHAR,
-            sub_laboratory_uuid VARCHAR,
-            site_laboratory_uuid VARCHAR,
-            internal_test_id VARCHAR,
-            debug_external_test_id VARCHAR,
-            debug_external_test_scope VARCHAR,
-            sampling_datetime_utc VARCHAR,
-            sampling_datetime_timezone VARCHAR,
-            result_datetime_utc VARCHAR,
-            result_datetime_timezone VARCHAR,
-            normality VARCHAR,
-            value_type VARCHAR,
-            internal_numerical_value VARCHAR,
-            internal_numerical_unit VARCHAR,
-            internal_numerical_unit_system VARCHAR,
-            internal_numerical_reference_min VARCHAR,
-            internal_numerical_reference_max VARCHAR,
-            internal_categorical_qualification VARCHAR,
-            internal_categorical_specification VARCHAR,
-            internal_antibiogram_bacterium_id VARCHAR,
-            range_type VARCHAR,
-            report_date_utc VARCHAR,
-            source_file VARCHAR,
-            load_timestamp TIMESTAMP(3) WITH TIME ZONE
-        ) WITH (format = 'PARQUET');
-
-        DELETE FROM iceberg.silver.staging_biological_results;
     """,
     dag=dag,
 )
@@ -138,6 +102,46 @@ def load_csv_to_staging(**context):
 
     try:
         cursor = conn.cursor()
+
+        # Create staging table if not exists (avoid Iceberg DROP issues)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS staging_biological_results (
+                visit_id VARCHAR,
+                visit_date_utc VARCHAR,
+                visit_rank VARCHAR,
+                patient_id VARCHAR,
+                report_id VARCHAR,
+                laboratory_uuid VARCHAR,
+                sub_laboratory_uuid VARCHAR,
+                site_laboratory_uuid VARCHAR,
+                internal_test_id VARCHAR,
+                debug_external_test_id VARCHAR,
+                debug_external_test_scope VARCHAR,
+                sampling_datetime_utc VARCHAR,
+                sampling_datetime_timezone VARCHAR,
+                result_datetime_utc VARCHAR,
+                result_datetime_timezone VARCHAR,
+                normality VARCHAR,
+                value_type VARCHAR,
+                internal_numerical_value VARCHAR,
+                internal_numerical_unit VARCHAR,
+                internal_numerical_unit_system VARCHAR,
+                internal_numerical_reference_min VARCHAR,
+                internal_numerical_reference_max VARCHAR,
+                internal_categorical_qualification VARCHAR,
+                internal_categorical_specification VARCHAR,
+                internal_antibiogram_bacterium_id VARCHAR,
+                range_type VARCHAR,
+                report_date_utc VARCHAR,
+                source_file VARCHAR,
+                load_timestamp TIMESTAMP(3) WITH TIME ZONE
+            ) WITH (format = 'PARQUET')
+        """)
+
+        # Clean staging table for fresh data
+        cursor.execute("DELETE FROM staging_biological_results")
+        print("✅ Staging table prepared and cleaned")
+
         for f in files:
             print(f"📄 Processing file: {f}")
             obj = minio_client.get_object(BRONZE_BUCKET, f)
