@@ -83,17 +83,19 @@ identify_files_task = ShortCircuitOperator(
     dag=dag,
 )
 
-# --- Task 3: Prepare Staging (Nessie Safe) ---
-# We use CREATE IF NOT EXISTS. If it exists, we just DELETE data.
+# --- Task 3: Prepare Schema and Staging (Nessie Safe) ---
+# Create schema first, then table and delete data.
 # This prevents Nessie commit conflicts on the table schema.
 prepare_staging = SQLExecuteQueryOperator(
     task_id='prepare_staging',
     conn_id='trino_default',
     sql="""
+        CREATE SCHEMA IF NOT EXISTS iceberg.silver;
+
         CREATE TABLE IF NOT EXISTS iceberg.silver.staging_biological_results (
-            visit_id VARCHAR, visit_date_utc VARCHAR, visit_rank VARCHAR, 
-            patient_id VARCHAR, report_id VARCHAR, laboratory_uuid VARCHAR, 
-            sub_laboratory_uuid VARCHAR, site_laboratory_uuid VARCHAR, 
+            visit_id VARCHAR, visit_date_utc VARCHAR, visit_rank VARCHAR,
+            patient_id VARCHAR, report_id VARCHAR, laboratory_uuid VARCHAR,
+            sub_laboratory_uuid VARCHAR, site_laboratory_uuid VARCHAR,
             source_file VARCHAR, load_timestamp TIMESTAMP(3) WITH TIME ZONE
         ) WITH (format = 'PARQUET');
 
