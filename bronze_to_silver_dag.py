@@ -143,10 +143,6 @@ def load_csv_to_staging(**context):
         cursor.execute("DELETE FROM staging_biological_results")
         print("✅ Staging table prepared and cleaned")
 
-        # Force commit to clean up metadata immediately
-        cursor.execute("CALL iceberg.system.remove_orphan_files('iceberg.silver.staging_biological_results')")
-        print("🧹 Orphan metadata files cleaned")
-
         for f in files:
             print(f"📄 Processing file: {f}")
             obj = minio_client.get_object(BRONZE_BUCKET, f)
