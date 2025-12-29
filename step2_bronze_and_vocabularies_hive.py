@@ -21,8 +21,7 @@ default_args = {
     'owner': 'omop-pipeline',
     'depends_on_past': False,
     'start_date': datetime(2024, 1, 1),
-    'retries': 1,  # Allow 1 retry for transient failures
-    'retry_delay': timedelta(minutes=10),
+    'retries': 0,  # No retries - fail fast for debugging
     'on_failure_callback': None,  # Could add alerting here
     'on_retry_callback': None,
 }
