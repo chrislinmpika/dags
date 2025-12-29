@@ -150,32 +150,59 @@ def check_vocabularies_exist(**context):
     print("📚 Checking if OMOP vocabularies already exist...")
 
     try:
+        # Check if vocabulary schema exists
+        schema_result = execute_trino_query(
+            "SHOW SCHEMAS IN iceberg",
+            "Check iceberg schemas"
+        )
+
+        schemas = [row[0] for row in schema_result] if schema_result else []
+        if 'omop_vocab' not in schemas:
+            print("📥 OMOP vocabulary schema doesn't exist - will create it")
+            return "vocabularies_needed"
+
         # Check if vocabulary tables exist
         result = execute_trino_query(
             "SHOW TABLES IN iceberg.omop_vocab",
-            "Check vocabulary schema exists"
+            "Check vocabulary schema tables"
         )
 
         tables = [row[0] for row in result] if result else []
         required_tables = ['concept', 'vocabulary', 'concept_relationship']
 
+        print(f"🔍 Found tables in omop_vocab schema: {tables}")
+
         if all(table in tables for table in required_tables):
-            concept_count = execute_trino_query(
-                "SELECT COUNT(*) FROM iceberg.omop_vocab.concept",
-                "Count existing concepts"
-            )
+            # Enhanced concept count check with error handling
+            try:
+                concept_count = execute_trino_query(
+                    "SELECT COUNT(*) FROM iceberg.omop_vocab.concept",
+                    "Count existing concepts",
+                    query_timeout=60
+                )
 
-            if concept_count and concept_count[0][0] > 100000:  # 100K+ concepts
-                print(f"✅ Vocabularies already exist! {concept_count[0][0]:,} concepts found")
-                print("⚡ Skipping vocabulary load - proceeding to CSV processing")
-                return "vocabularies_exist"
+                if concept_count and len(concept_count) > 0 and concept_count[0][0] > 50000:  # Lowered threshold
+                    concepts_found = concept_count[0][0]
+                    print(f"✅ VOCABULARIES ALREADY EXIST! {concepts_found:,} concepts found")
+                    print("⚡ Skipping vocabulary load - proceeding directly to CSV processing")
+                    return "vocabularies_exist"
+                else:
+                    print(f"⚠️  Concept table exists but only has {concept_count[0][0] if concept_count else 0} concepts")
 
-        print("📥 Vocabularies not found - will load from your CSV files using Hive")
+            except Exception as count_error:
+                print(f"❌ Error counting concepts: {count_error}")
+                print("🔄 Will attempt fresh vocabulary load due to count error")
+                return "vocabularies_needed"
+        else:
+            missing_tables = [t for t in required_tables if t not in tables]
+            print(f"📥 Missing vocabulary tables: {missing_tables}")
+
+        print("📥 Vocabularies not complete - will load from CSV files using Hive")
         return "vocabularies_needed"
 
     except Exception as e:
-        print(f"📥 Vocabularies schema not found: {e}")
-        print("💾 Will create fresh vocabulary setup using PROVEN Hive approach")
+        print(f"❌ Vocabulary check failed: {e}")
+        print("💾 Will attempt fresh vocabulary setup using PROVEN Hive approach")
         return "vocabularies_needed"
 
 def setup_hive_vocab_schema(**context):
