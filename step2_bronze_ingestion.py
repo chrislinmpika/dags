@@ -126,55 +126,60 @@ def create_external_csv_table(**context):
     # Use Trino's file reading capabilities with iceberg's S3 access to read REAL CSV files
     print("📁 Testing direct S3 file access using iceberg catalog...")
 
-    # First test reading a single CSV file directly
-    test_sql = """
-    SELECT '$path' as file_path, *
-    FROM TABLE(
-        system.read_text_file_as_table(
-            'file_path' => 's3a://bronze/biological_results_0000.csv',
-            'skip_header_line_count' => 1
-        )
-    )
+    # Use a much simpler approach - test if we can access S3 files directly
+    print("🧪 Testing if we can access S3 files with iceberg...")
+
+    # First just check if we can list files
+    test_list = """
+    SELECT '$path', '$file_size', '$file_modified_time'
+    FROM TABLE(system.list_files('s3a://bronze/'))
+    WHERE '$path' LIKE '%.csv'
     LIMIT 5
     """
 
     try:
-        print("🧪 Testing single CSV file read...")
-        execute_trino_bronze(test_sql, "Test single CSV file")
+        print("📁 Listing CSV files in S3...")
+        execute_trino_bronze(test_list, "List CSV files in bronze bucket")
 
-        # If successful, create table from all CSV files
+        # If that works, try reading file content directly
+        test_read = """
+        SELECT '$path' as file_path, line_number, line_content
+        FROM TABLE(system.read_text_file('s3a://bronze/biological_results_0000.csv'))
+        LIMIT 10
+        """
+
+        print("📄 Testing single file read...")
+        execute_trino_bronze(test_read, "Read single CSV file content")
+
+        # If successful, create table from CSV data
         sql = """
         CREATE TABLE iceberg.bronze.biological_results_external AS
         SELECT
             '$path' as source_file,
-            line_number,
-            split_part(line_content, ',', 1) as patient_id,
-            TRY(CAST(split_part(line_content, ',', 2) AS BIGINT)) as visit_id,
-            split_part(line_content, ',', 3) as sampling_datetime_utc,
-            split_part(line_content, ',', 4) as result_datetime_utc,
-            split_part(line_content, ',', 5) as report_date_utc,
-            split_part(line_content, ',', 6) as measurement_source_value,
-            split_part(line_content, ',', 7) as value_as_number,
-            split_part(line_content, ',', 8) as value_as_string,
-            split_part(line_content, ',', 9) as unit_source_value,
-            split_part(line_content, ',', 10) as normality,
-            split_part(line_content, ',', 11) as abnormal_flag,
-            split_part(line_content, ',', 12) as value_type,
-            split_part(line_content, ',', 13) as bacterium_id,
-            split_part(line_content, ',', 14) as provider_id,
-            split_part(line_content, ',', 15) as laboratory_uuid,
+            split(line_content, ',')[1] as patient_id,
+            TRY(CAST(split(line_content, ',')[2] AS BIGINT)) as visit_id,
+            split(line_content, ',')[3] as sampling_datetime_utc,
+            split(line_content, ',')[4] as result_datetime_utc,
+            split(line_content, ',')[5] as report_date_utc,
+            split(line_content, ',')[6] as measurement_source_value,
+            split(line_content, ',')[7] as value_as_number,
+            split(line_content, ',')[8] as value_as_string,
+            split(line_content, ',')[9] as unit_source_value,
+            split(line_content, ',')[10] as normality,
+            split(line_content, ',')[11] as abnormal_flag,
+            split(line_content, ',')[12] as value_type,
+            split(line_content, ',')[13] as bacterium_id,
+            split(line_content, ',')[14] as provider_id,
+            split(line_content, ',')[15] as laboratory_uuid,
             CURRENT_TIMESTAMP as load_timestamp
-        FROM TABLE(
-            system.read_text_file_as_table(
-                'file_path' => 's3a://bronze/*.csv',
-                'skip_header_line_count' => 1
-            )
-        )
-        WHERE length(trim(line_content)) > 0
+        FROM TABLE(system.read_text_file('s3a://bronze/biological_results_0000.csv'))
+        WHERE line_number > 1  -- Skip header
+          AND trim(line_content) != ''
+          AND cardinality(split(line_content, ',')) >= 15
         """
 
-        print("📝 Creating table from ALL 998 CSV files...")
-        return execute_trino_bronze(sql, "Create table from real CSV files")
+        print("📝 Creating table from CSV file data...")
+        return execute_trino_bronze(sql, "Create table from real CSV file")
 
     except Exception as e:
         print(f"❌ Direct file reading failed: {e}")
@@ -288,7 +293,7 @@ def create_bronze_enhanced_table(**context):
         *,
 
         -- OMOP-ready computed columns
-        abs(hash(patient_id)) AS patient_id_hash,
+        abs(xxhash64(utf8(patient_id))) AS patient_id_hash,
         substr(to_hex(sha256(to_utf8(patient_id))), 1, 32) AS person_id_hash,
 
         -- Generate measurement IDs
