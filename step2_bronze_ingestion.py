@@ -140,7 +140,7 @@ def create_external_csv_table(**context):
         bacterium_id VARCHAR,
         provider_id VARCHAR,
         laboratory_uuid VARCHAR,
-        load_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        load_timestamp TIMESTAMP
     )
     """
 
