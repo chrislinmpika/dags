@@ -141,14 +141,19 @@ def setup_bronze_schema(**context):
             "Create Iceberg bronze schema"
         )
 
-        # Drop existing bronze table for clean start
+        # Enhanced cleanup of existing bronze table and location
         try:
+            # First try to drop the table
             execute_trino_query(
                 "DROP TABLE IF EXISTS iceberg.bronze.biological_results_raw",
                 "Drop existing bronze table"
             )
-        except:
-            pass
+            print("✅ Existing bronze table dropped")
+        except Exception as e:
+            print(f"⚠️  Could not drop existing table: {e}")
+
+        # Also try to clear the location by using unique location approach
+        print("🔧 Using unique table location to avoid conflicts")
 
         print("✅ Bronze schemas ready for CSV processing!")
         return "bronze_schemas_ready"
@@ -316,16 +321,19 @@ def execute_csv_to_bronze_ctas(**context):
     start_time = datetime.now()
 
     # CSV → Bronze CTAS operation with CORRECTED column mapping
-    sql_csv_to_bronze = """
-    CREATE TABLE iceberg.bronze.biological_results_raw
+    # Generate unique table name to avoid location conflicts
+    import uuid
+    unique_suffix = str(uuid.uuid4())[:8]
+
+    sql_csv_to_bronze = f"""
+    CREATE TABLE iceberg.bronze.biological_results_raw_{unique_suffix}
     WITH (
         format = 'PARQUET',
 
         -- Time-based partitioning for fast date range queries
-        partitioning = ARRAY['year', 'month'],
+        partitioning = ARRAY['year', 'month']
 
-        -- Storage location
-        location = 's3a://eds-lakehouse/bronze/biological_results_raw/'
+        -- Let Iceberg auto-generate location to avoid conflicts
     )
     AS
     SELECT
@@ -371,7 +379,8 @@ def execute_csv_to_bronze_ctas(**context):
     ORDER BY COALESCE(patient_id, 'UNKNOWN'), measurement_source_value  -- Clustering for patient queries
     """
 
-    print("🔥 Starting CSV → Bronze CTAS with CORRECTED COLUMN MAPPING!")
+    print(f"🔥 Starting CSV → Bronze CTAS with CORRECTED COLUMN MAPPING!")
+    print(f"🎯 Creating table: biological_results_raw_{unique_suffix}")
     print("⏰ Expected time: ~62 minutes for 634M+ rows")
 
     result = execute_trino_query(sql_csv_to_bronze, "CSV → Bronze Parquet with CORRECTED mapping", schema='bronze')
@@ -390,9 +399,12 @@ def execute_csv_to_bronze_ctas(**context):
 
     print(f"🎉 CSV → Bronze conversion COMPLETE with CORRECTED MAPPING!")
     print(f"⏱️  Total time: {duration/3600:.2f} hours")
+    print(f"🎯 Table created: biological_results_raw_{unique_suffix}")
     print(f"🚀 Data converted with corrected column mapping!")
 
+    # Store table name for validation
     context['task_instance'].xcom_push(key='processing_time_hours', value=duration/3600)
+    context['task_instance'].xcom_push(key='bronze_table_name', value=f'biological_results_raw_{unique_suffix}')
 
     return result
 
@@ -402,11 +414,16 @@ def validate_bronze_results(**context):
 
     processing_time = context['task_instance'].xcom_pull(task_ids='execute_csv_to_bronze_ctas', key='processing_time_hours')
     external_rows = context['task_instance'].xcom_pull(task_ids='create_csv_external_table_corrected', key='external_table_rows')
+    bronze_table_name = context['task_instance'].xcom_pull(task_ids='execute_csv_to_bronze_ctas', key='bronze_table_name')
+
+    # Use dynamic table name or fallback to default
+    table_name = bronze_table_name if bronze_table_name else 'biological_results_raw'
+    print(f"🎯 Validating table: {table_name}")
 
     # Count bronze data
     try:
         count_result = execute_trino_query(
-            "SELECT COUNT(*) FROM iceberg.bronze.biological_results_raw",
+            f"SELECT COUNT(*) FROM iceberg.bronze.{table_name}",
             "Count bronze data rows",
             schema='bronze'
         )
@@ -417,7 +434,7 @@ def validate_bronze_results(**context):
 
     # Detailed statistics
     try:
-        stats_sql = """
+        stats_sql = f"""
         SELECT
             COUNT(*) as total_records,
             COUNT(DISTINCT patient_id) as unique_patients,
@@ -426,7 +443,7 @@ def validate_bronze_results(**context):
             MAX(sampling_datetime_utc) as latest_sample,
             COUNT(CASE WHEN value_as_number IS NOT NULL THEN 1 END) as numeric_values,
             COUNT(CASE WHEN measurement_source_value LIKE 'LC:%' THEN 1 END) as lab_code_measurements
-        FROM iceberg.bronze.biological_results_raw
+        FROM iceberg.bronze.{table_name}
         """
 
         stats_result = execute_trino_query(stats_sql, "Comprehensive bronze statistics", schema='bronze')
@@ -437,7 +454,7 @@ def validate_bronze_results(**context):
 
     # Check partitioning
     try:
-        partition_sql = """
+        partition_sql = f"""
         SELECT
             COUNT(DISTINCT CASE WHEN year IS NOT NULL AND year > 1900 AND year <= YEAR(CURRENT_DATE) THEN year END) as years_spanned,
             COUNT(DISTINCT
@@ -450,7 +467,7 @@ def validate_bronze_results(**context):
             ) as total_partitions,
             MIN(CASE WHEN year > 1900 AND year <= YEAR(CURRENT_DATE) THEN year END) as first_year,
             MAX(CASE WHEN year > 1900 AND year <= YEAR(CURRENT_DATE) THEN year END) as last_year
-        FROM iceberg.bronze.biological_results_raw
+        FROM iceberg.bronze.{table_name}
         WHERE year IS NOT NULL AND month IS NOT NULL
         """
 
