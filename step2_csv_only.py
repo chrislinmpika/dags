@@ -28,23 +28,22 @@ default_args = {
 dag = DAG(
     'step2_csv_only',
     default_args=default_args,
-    description='Step 2: CSV → Bronze with Session Properties Fixed (v3)',
+    description='Step 2: CSV → Bronze with Minimal Session Properties (v4)',
     schedule=None,
     catchup=False,
-    tags=['step2', 'bronze', 'csv-only', 'session-properties-fixed', 'v3'],
+    tags=['step2', 'bronze', 'csv-only', 'minimal-session-props', 'v4'],
     doc_md="""
-    ## CSV → Bronze Pipeline - Session Properties Fixed v3
+    ## CSV → Bronze Pipeline - Minimal Session Properties v4
 
     🎯 FOCUS: Pure CSV → Bronze conversion
-    🔧 FIXED: Invalid session properties that caused immediate failure
-    ⚡ MEMORY: 12GB per-node with valid Trino properties
-    💾 ENHANCED: Spill-to-disk capability with working session config
+    🔧 FIXED: All invalid session properties removed (spiller_spill_path, spill_enabled)
+    ⚡ MEMORY: 12GB per-node with only essential Trino properties
     🏗️ CLEAN: No vocabulary dependencies
 
-    Previous v2 failed immediately due to invalid Trino session properties.
-    This v3 removes task_writer_count, task_partitioned_writer_count, task_max_writer_count.
+    Previous v3 failed due to spill-related session properties not existing.
+    This v4 uses only validated properties: memory limits, concurrency, join distribution.
 
-    Version: csv-only-v3 (Dec 30, 2025) - Session Properties Fixed
+    Version: csv-only-v4 (Dec 30, 2025) - Minimal Session Properties
     """,
 )
 
@@ -74,22 +73,20 @@ def execute_trino_query(sql_query, description, catalog='iceberg', schema='defau
             user='airflow',
             catalog=catalog,
             schema=schema,
-            # Memory and performance properties (FIXED: removed invalid properties)
+            # Memory and performance properties (FIXED: only valid Trino properties)
             session_properties={
                 'query_max_memory': '20GB',
                 'query_max_memory_per_node': '12GB',
                 'query_max_total_memory': '24GB',
                 'task_concurrency': '8',
-                'join_distribution_type': 'AUTOMATIC',
-                'spill_enabled': 'true',
-                'spiller_spill_path': '/tmp/trino-spill'
+                'join_distribution_type': 'AUTOMATIC'
             }
         )
 
         cursor = conn.cursor()
         start_time = time.time()
 
-        print(f"🔧 Query memory limits: 20GB total, 12GB per node, spill enabled")
+        print(f"🔧 Query memory limits: 20GB total, 12GB per node, minimal session properties")
         cursor.execute(sql_query)
 
         if sql_query.strip().upper().startswith('SELECT'):
@@ -111,6 +108,8 @@ def execute_trino_query(sql_query, description, catalog='iceberg', schema='defau
         # Add memory usage info to error context
         if "OutOfMemoryError" in str(e) or "memory" in str(e).lower():
             print(f"💾 MEMORY ERROR: Consider reducing query complexity or increasing cluster memory")
+        if "INVALID_SESSION_PROPERTY" in str(e):
+            print(f"🔧 SESSION PROPERTY ERROR: Using unsupported Trino session property")
         raise e
     finally:
         # Clear timeout
