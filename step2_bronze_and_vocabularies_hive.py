@@ -124,7 +124,7 @@ def load_vocabulary_via_hive(**context):
     try:
         # Create Iceberg vocabulary schema
         execute_trino_query(
-            "CREATE SCHEMA IF NOT EXISTS iceberg.omop_vocab WITH (location = 's3://eds-lakehouse/omop_vocab/')",
+            "CREATE SCHEMA IF NOT EXISTS iceberg.omop_vocab WITH (location = 's3a://eds-lakehouse/omop_vocab/')",
             "Create Iceberg vocabulary schema"
         )
 
@@ -140,11 +140,10 @@ def load_vocabulary_via_hive(**context):
                 vocabulary_concept_id varchar
             )
             WITH (
-                external_location = 's3a://omop-vocabularies/',
+                external_location = 's3a://omop-vocabularies/VOCABULARY.csv',
                 format = 'CSV',
                 csv_separator = '\t',
-                skip_header_line_count = 1,
-                file_name_pattern = 'VOCABULARY.csv'
+                skip_header_line_count = 1
             )
         """, "Create Hive external VOCABULARY table", catalog='hive', schema='omop_vocab')
 
@@ -163,11 +162,10 @@ def load_vocabulary_via_hive(**context):
                 invalid_reason varchar
             )
             WITH (
-                external_location = 's3a://omop-vocabularies/',
+                external_location = 's3a://omop-vocabularies/CONCEPT.csv',
                 format = 'CSV',
                 csv_separator = '\t',
-                skip_header_line_count = 1,
-                file_name_pattern = 'CONCEPT.csv'
+                skip_header_line_count = 1
             )
         """, "Create Hive external CONCEPT table", catalog='hive', schema='omop_vocab')
 
@@ -182,11 +180,10 @@ def load_vocabulary_via_hive(**context):
                 invalid_reason varchar
             )
             WITH (
-                external_location = 's3a://omop-vocabularies/',
+                external_location = 's3a://omop-vocabularies/CONCEPT_RELATIONSHIP.csv',
                 format = 'CSV',
                 csv_separator = '\t',
-                skip_header_line_count = 1,
-                file_name_pattern = 'CONCEPT_RELATIONSHIP.csv'
+                skip_header_line_count = 1
             )
         """, "Create Hive external CONCEPT_RELATIONSHIP table", catalog='hive', schema='omop_vocab')
 
@@ -270,7 +267,7 @@ def setup_bronze_hive_schema(**context):
 
         # Create Iceberg bronze schema
         execute_trino_query(
-            "CREATE SCHEMA IF NOT EXISTS iceberg.bronze WITH (location = 's3://eds-lakehouse/bronze/')",
+            "CREATE SCHEMA IF NOT EXISTS iceberg.bronze WITH (location = 's3a://eds-lakehouse/bronze/')",
             "Create Iceberg bronze schema"
         )
 
