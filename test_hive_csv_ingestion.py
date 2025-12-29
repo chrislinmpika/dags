@@ -26,10 +26,11 @@ default_args = {
 dag = DAG(
     'test_hive_csv_ingestion',
     default_args=default_args,
-    description='Test Hive external CSV table + Iceberg CTAS for fast bulk ingestion',
+    description='Test Hive external CSV table + Iceberg CTAS for fast bulk ingestion - S3A FIXED v2',
     schedule=None,
     catchup=False,
-    tags=['test', 'hive', 'iceberg', 'csv', 'bulk-ingestion'],
+    tags=['test', 'hive', 'iceberg', 'csv', 'bulk-ingestion', 's3a-fixed'],
+    version='2.0',
 )
 
 def execute_trino_query(sql_query, description, catalog='hive', schema='default'):
