@@ -140,7 +140,7 @@ def load_vocabulary_via_hive(**context):
                 vocabulary_concept_id varchar
             )
             WITH (
-                external_location = 's3a://omop-vocabularies/VOCABULARY.csv',
+                external_location = 's3a://omop-vocabularies/',
                 format = 'CSV',
                 csv_separator = '\t',
                 skip_header_line_count = 1
@@ -162,7 +162,7 @@ def load_vocabulary_via_hive(**context):
                 invalid_reason varchar
             )
             WITH (
-                external_location = 's3a://omop-vocabularies/CONCEPT.csv',
+                external_location = 's3a://omop-vocabularies/',
                 format = 'CSV',
                 csv_separator = '\t',
                 skip_header_line_count = 1
@@ -180,7 +180,7 @@ def load_vocabulary_via_hive(**context):
                 invalid_reason varchar
             )
             WITH (
-                external_location = 's3a://omop-vocabularies/CONCEPT_RELATIONSHIP.csv',
+                external_location = 's3a://omop-vocabularies/',
                 format = 'CSV',
                 csv_separator = '\t',
                 skip_header_line_count = 1
@@ -189,7 +189,7 @@ def load_vocabulary_via_hive(**context):
 
         print("📊 Step 2: Loading vocabularies via CTAS (proven fast method)...")
 
-        # Load VOCABULARY via CTAS
+        # Load VOCABULARY via CTAS (filter by filename)
         execute_trino_query("""
             CREATE TABLE iceberg.omop_vocab.vocabulary
             WITH (format = 'PARQUET')
@@ -202,6 +202,7 @@ def load_vocabulary_via_hive(**context):
                 TRY_CAST(vocabulary_concept_id AS BIGINT) AS vocabulary_concept_id
             FROM hive.omop_vocab.vocabulary_external
             WHERE vocabulary_id IS NOT NULL
+              AND "$path" LIKE '%VOCABULARY.csv'
         """, "Load VOCABULARY via proven CTAS method")
 
         # Load CONCEPT via CTAS (this is the big one - 5M+ concepts)
@@ -223,6 +224,7 @@ def load_vocabulary_via_hive(**context):
             FROM hive.omop_vocab.concept_external
             WHERE concept_id IS NOT NULL
               AND TRY_CAST(concept_id AS BIGINT) IS NOT NULL
+              AND "$path" LIKE '%CONCEPT.csv'
         """, "Load CONCEPT via proven CTAS method (5M+ concepts)")
 
         # Load CONCEPT_RELATIONSHIP via CTAS
@@ -242,6 +244,7 @@ def load_vocabulary_via_hive(**context):
               AND concept_id_2 IS NOT NULL
               AND TRY_CAST(concept_id_1 AS BIGINT) IS NOT NULL
               AND TRY_CAST(concept_id_2 AS BIGINT) IS NOT NULL
+              AND "$path" LIKE '%CONCEPT_RELATIONSHIP.csv'
         """, "Load CONCEPT_RELATIONSHIP via proven CTAS method")
 
         print("✅ Complete OMOP vocabulary set loaded using proven Hive method!")
