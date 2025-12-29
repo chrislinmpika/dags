@@ -21,7 +21,7 @@ default_args = {
     'owner': 'omop-pipeline',
     'depends_on_past': False,
     'start_date': datetime(2024, 1, 1),
-    'retries': 2,
+    'retries': 0,
     'retry_delay': timedelta(minutes=5),
 }
 
