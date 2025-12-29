@@ -30,92 +30,80 @@ dag = DAG(
 )
 
 def scan_minio_csv_files(**context):
-    """Scan MinIO for biological results CSV files"""
+    """Scan MinIO for biological results CSV files - NO FAKE DATA"""
     print("🔍 STEP 1: Scanning MinIO for CSV files...")
 
     try:
-        # Try to use boto3 to connect to MinIO
+        import boto3
+        print("✅ boto3 module available")
+    except ImportError as e:
+        print(f"❌ boto3 not available: {e}")
+        print("🛠️  Install boto3 in Airflow container to connect to MinIO")
+        raise Exception("boto3 required for MinIO connection")
+
+    try:
+        # Connect to YOUR ACTUAL MinIO instance
+        s3_client = boto3.client(
+            's3',
+            endpoint_url='http://minio-api.ns-data-platform.svc.cluster.local:9000',
+            aws_access_key_id='minio',
+            aws_secret_access_key='minio123',
+            region_name='us-east-1'
+        )
+
+        print("✅ Connected to MinIO successfully")
+
+        # List all buckets first
+        buckets = s3_client.list_buckets()
+        print("📁 Available buckets:")
+        for bucket in buckets['Buckets']:
+            print(f"   - {bucket['Name']}")
+
+        # Look for CSV files in bronze bucket
+        csv_files = []
+        print("\n🔍 Scanning bronze bucket for CSV files...")
+
         try:
-            import boto3
-            print("✅ boto3 module available")
-        except ImportError:
-            print("⚠️  boto3 not available, using alternative approach...")
-            # Fallback to manual file listing simulation
-            csv_files = [
-                {'name': 'biological_results_0000.csv', 'size': 104857600},
-                {'name': 'biological_results_0001.csv', 'size': 104857600},
-                {'name': 'biological_results_0002.csv', 'size': 104857600},
-                {'name': 'biological_results_0003.csv', 'size': 104857600},
-            ]
-            print("📁 Simulated CSV files found:")
-            for file_info in csv_files:
-                print(f"   - {file_info['name']} ({file_info['size']:,} bytes)")
+            response = s3_client.list_objects_v2(Bucket='bronze')
 
-            context['task_instance'].xcom_push(key='csv_files', value=csv_files)
-            return csv_files
+            if 'Contents' in response:
+                print(f"📄 Found {len(response['Contents'])} total objects in bronze bucket:")
 
-        # Try MinIO connection
-        try:
-            s3_client = boto3.client(
-                's3',
-                endpoint_url='http://minio-api.ns-data-platform.svc.cluster.local:9000',
-                aws_access_key_id='minio',
-                aws_secret_access_key='minio123',
-                region_name='us-east-1'
-            )
+                for obj in response['Contents']:
+                    print(f"   - {obj['Key']} ({obj['Size']:,} bytes)")
 
-            print("✅ Connected to MinIO")
+                    if obj['Key'].endswith('.csv'):
+                        csv_files.append({
+                            'name': obj['Key'],
+                            'size': obj['Size'],
+                            'last_modified': obj['LastModified'].isoformat()
+                        })
 
-            # List CSV files in bronze bucket
-            csv_files = []
-            try:
-                response = s3_client.list_objects_v2(Bucket='bronze', Prefix='biological_results')
-
-                if 'Contents' in response:
-                    for obj in response['Contents']:
-                        if obj['Key'].endswith('.csv'):
-                            csv_files.append({
-                                'name': obj['Key'],
-                                'size': obj['Size'],
-                                'last_modified': obj['LastModified'].isoformat()
-                            })
-
-                print(f"📁 Found {len(csv_files)} CSV files:")
+                print(f"\n📊 CSV FILES FOUND: {len(csv_files)}")
                 for file_info in csv_files:
-                    print(f"   - {file_info['name']} ({file_info['size']:,} bytes)")
+                    print(f"   ✅ {file_info['name']} ({file_info['size']:,} bytes)")
 
-                if not csv_files:
-                    print("⚠️  No CSV files found in bronze bucket")
-                    # Create sample file info for POC
-                    csv_files = [
-                        {'name': 'biological_results_sample.csv', 'size': 1000000}
-                    ]
-                    print("📋 Using sample file structure for POC")
-
-            except Exception as e:
-                print(f"⚠️  Could not list objects in bronze bucket: {e}")
-                print("📋 Using default file structure for POC")
-                csv_files = [
-                    {'name': 'biological_results_0000.csv', 'size': 104857600},
-                    {'name': 'biological_results_0001.csv', 'size': 104857600},
-                ]
+            else:
+                print("📭 Bronze bucket is empty")
 
         except Exception as e:
-            print(f"⚠️  MinIO connection failed: {e}")
-            print("📋 Using simulated file list for POC")
-            csv_files = [
-                {'name': 'biological_results_0000.csv', 'size': 104857600},
-                {'name': 'biological_results_0001.csv', 'size': 104857600},
-            ]
+            print(f"❌ Failed to list objects in bronze bucket: {e}")
+            raise
 
-        # Store results for next steps
+        if not csv_files:
+            print("❌ NO CSV FILES FOUND!")
+            print("🔧 Check that CSV files are uploaded to the bronze bucket")
+            raise Exception("No CSV files found in MinIO bronze bucket")
+
+        # Store REAL results for next steps
         context['task_instance'].xcom_push(key='csv_files', value=csv_files)
 
-        print(f"\n✅ Discovery completed: {len(csv_files)} CSV files ready for processing")
+        print(f"\n✅ Discovery completed: {len(csv_files)} REAL CSV files found")
         return csv_files
 
     except Exception as e:
-        print(f"❌ Discovery failed: {e}")
+        print(f"❌ MinIO connection or discovery failed: {e}")
+        print("🔧 Check MinIO connection details, credentials, and bucket contents")
         raise
 
 def validate_csv_structure(**context):
