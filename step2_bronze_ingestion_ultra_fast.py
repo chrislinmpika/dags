@@ -1,10 +1,10 @@
 """
-STEP 2: Bronze CSV Ingestion - ULTRA FAST v13
+STEP 2: Bronze CSV Ingestion - ULTRA FAST v14
 
 NATIVE TRINO APPROACH - Processes ALL CSV files in parallel!
 - Uses Trino's read_files() function for parallel processing
 - All 2000 CSV files processed simultaneously by Trino workers
-- Expected time: 2-3 hours (vs 10-15 hours with Python)
+- Expected time: 30-45 minutes (vs 62 minutes with Hive, 10-15 hours with Python)
 - Zero Python CSV parsing overhead
 - Maximum Trino performance utilization
 
@@ -26,10 +26,10 @@ default_args = {
 dag = DAG(
     'step2_bronze_ingestion_ultra_fast',
     default_args=default_args,
-    description='Step 2: ULTRA FAST native Trino CSV ingestion v13 - 2-3 hours!',
+    description='Step 2: ULTRA FAST native Trino CSV ingestion v14 - 30-45 minutes!',
     schedule=None,
     catchup=False,
-    tags=['step2', 'bronze', 'ingestion', 'ultra-fast', 'native-trino', 'v13'],
+    tags=['step2', 'bronze', 'ingestion', 'ultra-fast', 'native-trino', 'v14'],
 )
 
 def execute_trino_query(sql_query, description, catalog='iceberg', schema='default'):
@@ -61,7 +61,7 @@ def execute_trino_query(sql_query, description, catalog='iceberg', schema='defau
 
 def prepare_ultra_fast_environment(**context):
     """Prepare for ultra-fast native Trino processing"""
-    print("🚀 STEP 2 v13: Preparing for ULTRA FAST native Trino processing...")
+    print("🚀 STEP 2 v14: Preparing for ULTRA FAST native Trino processing...")
     print("⚡ This approach processes ALL CSV files in parallel!")
 
     # Create bronze schema
@@ -88,15 +88,19 @@ def test_read_files_capability(**context):
     print("🧪 Testing Trino native read_files() capability...")
 
     try:
-        # Test read_files with a small sample
+        # Test read_files with any CSV file (using LIMIT for safety)
         sql_test = """
         SELECT COUNT(*) as row_count
-        FROM TABLE(
-            system.table_function.read_files(
-                path => 's3://bronze/biological_results_0000.csv',
-                format => 'CSV',
-                header => true
+        FROM (
+            SELECT *
+            FROM TABLE(
+                system.table_function.read_files(
+                    path => 's3a://bronze/*.csv',
+                    format => 'CSV',
+                    header => true
+                )
             )
+            LIMIT 1000
         )
         """
 
@@ -118,7 +122,7 @@ def test_read_files_capability(**context):
 
 def execute_ultra_fast_ctas(**context):
     """Execute ULTRA FAST native Trino CTAS for ALL CSV files"""
-    print("🚀 STEP 2 v13: ULTRA FAST PROCESSING - ALL 2000 CSV FILES IN PARALLEL!")
+    print("🚀 STEP 2 v14: ULTRA FAST PROCESSING - ALL 2000 CSV FILES IN PARALLEL!")
     print("⚡ This is the fastest possible approach for large-scale CSV processing!")
 
     start_time = datetime.now()
@@ -153,11 +157,11 @@ def execute_ultra_fast_ctas(**context):
 
         -- Processing metadata
         CURRENT_TIMESTAMP AS load_timestamp,
-        'ultra_fast_v13' AS processing_batch
+        'ultra_fast_v14' AS processing_batch
 
     FROM TABLE(
         system.table_function.read_files(
-            path => 's3://bronze/*.csv',
+            path => 's3a://bronze/*.csv',
             format => 'CSV',
             header => true
         )
@@ -167,7 +171,7 @@ def execute_ultra_fast_ctas(**context):
     """
 
     print("🔥 Starting ULTRA FAST CTAS - ALL 2000 files processed in parallel!")
-    print("⏰ Expected time: 2-3 hours (vs 10-15 hours with Python)")
+    print("⏰ Expected time: 30-45 minutes (vs 62 minutes with Hive, 10-15 hours with Python)")
 
     result = execute_trino_query(sql_ultra_fast, "ULTRA FAST: ALL CSV → Iceberg Parquet", schema='bronze')
 
@@ -184,7 +188,7 @@ def execute_ultra_fast_ctas(**context):
 
 def validate_ultra_fast_results(**context):
     """Validate ultra-fast processing results"""
-    print("📊 STEP 2 v13: Validating ULTRA FAST processing results...")
+    print("📊 STEP 2 v14: Validating ULTRA FAST processing results...")
 
     processing_time = context['task_instance'].xcom_pull(task_ids='execute_ultra_fast_ctas', key='processing_time_hours')
 
@@ -214,7 +218,7 @@ def validate_ultra_fast_results(**context):
     stats = execute_trino_query(stats_sql, "Comprehensive statistics", schema='bronze')[0]
 
     print(f"\n{'='*80}")
-    print(f"🎉 ULTRA FAST PROCESSING RESULTS v13")
+    print(f"🎉 ULTRA FAST PROCESSING RESULTS v14")
     print(f"{'='*80}")
     print(f"⏱️  Processing time: {processing_time:.2f} hours")
     print(f"📊 Total records: {stats[0]:,}")
@@ -250,7 +254,7 @@ def validate_ultra_fast_results(**context):
         print(f"  File: {row[3]} | Batch: {row[4]}\n")
 
     print(f"{'='*80}")
-    print(f"🎉 STEP 2 v13 ULTRA FAST COMPLETE - READY FOR STEP 3!")
+    print(f"🎉 STEP 2 v14 ULTRA FAST COMPLETE - READY FOR STEP 3!")
     print(f"🚀 Achieved {stats[0]/(processing_time*3600):,.0f} rows/second processing rate!")
     print(f"{'='*80}")
 
@@ -273,7 +277,7 @@ execute_ctas = PythonOperator(
     task_id='execute_ultra_fast_ctas',
     python_callable=execute_ultra_fast_ctas,
     dag=dag,
-    execution_timeout=timedelta(hours=4),  # Safety timeout for 2-3 hour processing
+    execution_timeout=timedelta(hours=2),  # Safety timeout for 30-45 minute processing
 )
 
 validate_results = PythonOperator(
