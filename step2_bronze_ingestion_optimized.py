@@ -1,5 +1,5 @@
 """
-STEP 2: Bronze CSV Ingestion - FULLY OPTIMIZED v11
+STEP 2: Bronze CSV Ingestion - FULLY OPTIMIZED v12
 
 Combines ALL optimizations:
 - Batch size: 10 files processed together
@@ -9,6 +9,7 @@ Combines ALL optimizations:
 - Source file tracking
 - Error handling
 - FIXED: Uses MinIO client instead of boto3
+- FIXED: Removed explicit S3 location to avoid conflicts
 
 Expected time: 6-10 hours for 998 files (200GB)
 """
@@ -28,10 +29,10 @@ default_args = {
 dag = DAG(
     'step2_bronze_ingestion_optimized',
     default_args=default_args,
-    description='Step 2: Fully optimized CSV ingestion v11 - MinIO client fixed',
+    description='Step 2: Fully optimized CSV ingestion v12 - Fixed S3 location conflicts',
     schedule=None,
     catchup=False,
-    tags=['step2', 'bronze', 'ingestion', 'fully-optimized', 'production', 'v11'],
+    tags=['step2', 'bronze', 'ingestion', 'fully-optimized', 'production', 'v12'],
 )
 
 def execute_trino_query(sql_query, description, catalog='iceberg', schema='default'):
@@ -63,7 +64,7 @@ def execute_trino_query(sql_query, description, catalog='iceberg', schema='defau
 
 def prepare_bronze_table(**context):
     """Create optimized Iceberg bronze table"""
-    print("🏗️ STEP 2 v11: Preparing Iceberg bronze table...")
+    print("🏗️ STEP 2 v12: Preparing Iceberg bronze table...")
     
     # Create schema
     execute_trino_query(
@@ -104,25 +105,24 @@ def prepare_bronze_table(**context):
         processing_batch VARCHAR
     )
     WITH (
-        format = 'PARQUET',
-        location = 's3://eds-lakehouse/bronze/biological_results/'
+        format = 'PARQUET'
     )
     """
     
     execute_trino_query(sql_create, "Create bronze table", schema='bronze')
-    print("✅ Table ready with optimized schema (v11)")
+    print("✅ Table ready with optimized schema (v12)")
     return "table_ready"
 
 def process_csv_files_optimized(**context):
     """
-    Process ALL CSV files with FULL optimization v11
+    Process ALL CSV files with FULL optimization v12
     - Batch processing (10 files at once)
     - Pandas type conversion
     - executemany() for bulk inserts
     - Progress tracking
     - MinIO client (fixed)
     """
-    print("🚀 STEP 2 v11: Processing 998 CSV files with FULL optimization...")
+    print("🚀 STEP 2 v12: Processing 998 CSV files with FULL optimization...")
     print("⚡ Batch size: 10 files | Insert method: executemany()")
     
     try:
@@ -201,7 +201,7 @@ def process_csv_files_optimized(**context):
         
         # Combine batch
         batch_df = pd.concat(batch_dfs, ignore_index=True)
-        batch_df['processing_batch'] = f'batch_{batch_num}_v11'
+        batch_df['processing_batch'] = f'batch_{batch_num}_v12'
         batch_df['load_timestamp'] = dt.now()
         
         print(f"\n  📊 Combined batch: {len(batch_df):,} rows")
@@ -321,7 +321,7 @@ def process_csv_files_optimized(**context):
     total_time = (dt.now() - start_time).total_seconds()
     
     print(f"\n{'='*60}")
-    print(f"🎉 PROCESSING COMPLETE (v11)!")
+    print(f"🎉 PROCESSING COMPLETE (v12)!")
     print(f"{'='*60}")
     print(f"✅ Files processed: {processed_files}/{total_files}")
     print(f"✅ Total rows inserted: {total_rows:,}")
@@ -339,7 +339,7 @@ def process_csv_files_optimized(**context):
 
 def validate_results(**context):
     """Comprehensive validation of loaded data"""
-    print("📊 STEP 2 v11: Validating results...")
+    print("📊 STEP 2 v12: Validating results...")
     
     results = context['task_instance'].xcom_pull(task_ids='process_csv_files_optimized')
     expected_rows = results['total_rows']
@@ -353,7 +353,7 @@ def validate_results(**context):
     actual_rows = actual_result[0][0]
     
     print(f"\n{'='*60}")
-    print(f"VALIDATION RESULTS (v11)")
+    print(f"VALIDATION RESULTS (v12)")
     print(f"{'='*60}")
     print(f"Expected rows: {expected_rows:,}")
     print(f"Actual rows: {actual_rows:,}")
@@ -382,7 +382,7 @@ def validate_results(**context):
     stats = execute_trino_query(stats_sql, "Detailed statistics", schema='bronze')[0]
     
     print(f"\n{'='*60}")
-    print(f"DATA QUALITY SUMMARY (v11)")
+    print(f"DATA QUALITY SUMMARY (v12)")
     print(f"{'='*60}")
     print(f"Total records: {stats[0]:,}")
     print(f"Unique patients: {stats[1]:,}")
@@ -415,7 +415,7 @@ def validate_results(**context):
         print()
     
     print(f"{'='*60}")
-    print(f"🎉 STEP 2 v11 COMPLETE - READY FOR STEP 3!")
+    print(f"🎉 STEP 2 v12 COMPLETE - READY FOR STEP 3!")
     print(f"{'='*60}")
     
     return "validation_complete"
