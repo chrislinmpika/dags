@@ -132,7 +132,7 @@ def create_external_csv_table(**context):
             laboratory_uuid varchar
         )
         WITH (
-            external_location = 's3://bronze/',
+            external_location = 's3a://bronze/',
             format = 'CSV',
             csv_separator = ',',
             skip_header_line_count = 1
