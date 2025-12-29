@@ -30,10 +30,10 @@ default_args = {
 dag = DAG(
     'step2_bronze_ingestion_optimized',
     default_args=default_args,
-    description='Step 2: Optimized ingestion of ALL 998 CSV files - v6',
+    description='Step 2: Optimized ingestion of ALL 998 CSV files - v7 (Fixed SQL Escaping)',
     schedule=None,  # Manual trigger after Step 1
     catchup=False,
-    tags=['step2', 'bronze', 'ingestion', 'optimized', 'v6'],
+    tags=['step2', 'bronze', 'ingestion', 'optimized', 'v7'],
 )
 
 def execute_trino_bronze(sql_query, description):
@@ -223,8 +223,8 @@ def process_csv_files_bulk(**context):
                         safe_row = []
                         for col in row:
                             if col and col.strip():
-                                # Escape single quotes
-                                safe_val = col.replace("'", "''")
+                                # Escape backslashes first, then single quotes for SQL
+                                safe_val = col.replace("\\", "\\\\").replace("'", "''")
                                 safe_row.append(f"'{safe_val}'")
                             else:
                                 safe_row.append("NULL")
