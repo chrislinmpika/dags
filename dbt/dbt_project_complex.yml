@@ -1,0 +1,136 @@
+name: 'eds_omop'
+version: '1.0.0'
+config-version: 2
+
+# This setting configures which "profile" dbt uses for this project.
+profile: 'trino_eds'
+
+# These configurations specify where dbt should look for different types of files.
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Project-wide configurations for OMOP CDM implementation
+vars:
+  # OMOP CDM version
+  omop_cdm_version: '6.0'
+
+  # Data quality thresholds
+  min_data_quality_score: 0.8
+  min_concept_mapping_confidence: 0.7
+
+  # GDPR compliance settings
+  gdpr_enabled: true
+  gdpr_salt: "omop_eds_2025"
+  gdpr_audit_retention_days: 2555  # 7 years
+
+  # Processing configuration
+  full_rebuild_mode: true
+  enable_partitioning: true
+  enable_sorting: true
+
+# Model configurations
+models:
+  eds_omop:
+    # Global settings for all models
+    +materialized: view
+    +on_schema_change: "fail"
+
+    # Staging models - lightweight views for data preparation
+    staging:
+      +materialized: view
+      +docs:
+        show: true
+      +meta:
+        owner: "data-team"
+        data_classification: "restricted"  # Contains PII (hashed)
+
+    # Intermediate models - business logic transformations
+    intermediate:
+      +materialized: view
+      +docs:
+        show: true
+
+    # Silver models - OMOP CDM tables (production)
+    silver:
+      +materialized: table
+      +file_format: parquet
+      +on_schema_change: "append_new_columns"
+      +full_refresh: true  # Enable full rebuild strategy
+      +docs:
+        show: true
+      +meta:
+        owner: "data-team"
+        data_classification: "restricted"
+        omop_cdm_version: "6.0"
+        gdpr_compliant: true
+
+      # Core OMOP tables with specific optimizations
+      omop_person:
+        +materialized: table
+        +partition_by: ['bucket(person_id, 64)', 'year_of_birth']
+        +sorted_by: ['person_id']
+        +meta:
+          description: "GDPR-compliant anonymized patient demographics"
+          pii_fields: ["person_id", "gdpr_original_hash"]
+
+      omop_measurement:
+        +materialized: table
+        +partition_by: ['year(measurement_date)', 'bucket(person_id, 128)']
+        +sorted_by: ['person_id', 'measurement_date', 'measurement_concept_id']
+        +meta:
+          description: "Laboratory measurements with LOINC concept mapping"
+          primary_keys: ["measurement_id"]
+          foreign_keys: ["person_id", "visit_occurrence_id"]
+
+      omop_visit_occurrence:
+        +materialized: table
+        +partition_by: ['year(visit_start_date)', 'bucket(person_id, 64)']
+        +sorted_by: ['person_id', 'visit_start_date']
+        +meta:
+          description: "Healthcare visits inferred from laboratory encounters"
+
+      omop_observation:
+        +materialized: table
+        +partition_by: ['year(observation_date)', 'bucket(person_id, 128)']
+        +sorted_by: ['person_id', 'observation_date', 'observation_concept_id']
+        +meta:
+          description: "Categorical and qualitative laboratory results"
+
+# Testing configurations
+tests:
+  +store_failures: true
+  +schema: test_results
+
+# Seeds configuration (for reference data)
+seeds:
+  eds_omop:
+    +file_format: parquet
+    +docs:
+      show: true
+
+# Snapshot configurations (for change data capture if needed)
+snapshots:
+  eds_omop:
+    +target_schema: snapshots
+    +unique_key: id
+    +strategy: timestamp
+    +updated_at: updated_at
+
+# Documentation configuration
+docs:
+  generate: true
+
+# Simple hooks without variable dependencies
+on-run-start:
+  - "{{ log('Starting OMOP CDM transformation run...', info=true) }}"
+
+on-run-end:
+  - "{{ log('OMOP CDM transformation complete!', info=true) }}"
