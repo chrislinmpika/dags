@@ -6,7 +6,7 @@
 }}
 
 WITH source AS (
-    SELECT * FROM {{ source('staging', 'staging_biological_results') }}
+    SELECT * FROM {{ source('staging', 'biological_results_enhanced') }}
 ),
 
 cleaned AS (
