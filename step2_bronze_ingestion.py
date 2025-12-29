@@ -216,31 +216,18 @@ def create_external_csv_table(**context):
 
     except Exception as e:
         print(f"❌ Python CSV reading failed: {e}")
-        print("🔄 Falling back to empty table...")
+        print(f"🚫 FAILING TASK - No fallback to empty tables!")
+        print(f"🎯 We must process REAL CSV files, not create empty tables")
+        print(f"💡 Check MinIO connection, CSV file existence, or CSV format")
 
-        # Fallback: Just create empty table
-        sql_fallback = """
-        CREATE TABLE iceberg.bronze.biological_results_external (
-            patient_id VARCHAR,
-            visit_id BIGINT,
-            sampling_datetime_utc VARCHAR,
-            result_datetime_utc VARCHAR,
-            report_date_utc VARCHAR,
-            measurement_source_value VARCHAR,
-            value_as_number VARCHAR,
-            value_as_string VARCHAR,
-            unit_source_value VARCHAR,
-            normality VARCHAR,
-            abnormal_flag VARCHAR,
-            value_type VARCHAR,
-            bacterium_id VARCHAR,
-            provider_id VARCHAR,
-            laboratory_uuid VARCHAR,
-            load_timestamp TIMESTAMP(3) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-        """
+        # Provide debugging info
+        print(f"\n🔍 Debug info:")
+        print(f"   - Error type: {type(e).__name__}")
+        print(f"   - Error message: {str(e)}")
+        print(f"   - Expected file: biological_results_0000.csv in bronze bucket")
 
-        return execute_trino_bronze(sql_fallback, "Create fallback empty table")
+        # Re-raise the exception to fail the task properly
+        raise Exception(f"CSV processing failed: {str(e)}. Cannot process real CSV files - refusing to create empty table.")
 
 def validate_csv_data_load(**context):
     """Validate that CSV data was loaded successfully from external table"""
