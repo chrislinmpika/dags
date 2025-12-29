@@ -24,10 +24,10 @@ vars:
 # Model configurations
 models:
   eds_omop:
-    +materialized: view
+    +materialized: table
 
     staging:
-      +materialized: view
+      +materialized: table
 
     silver:
       +materialized: table

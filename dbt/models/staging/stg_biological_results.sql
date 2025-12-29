@@ -1,7 +1,9 @@
 -- models/staging/stg_biological_results_fixed.sql
 {{
     config(
-        materialized='view'
+        materialized='table',
+        partition_by=['measurement_date'],
+        format='iceberg'
     )
 }}
 
