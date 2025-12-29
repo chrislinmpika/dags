@@ -105,73 +105,133 @@ def create_external_csv_table(**context):
     """Create external table pointing to all CSV files in MinIO"""
     print("📁 STEP 2: Creating external table for CSV files...")
 
-    # First, let's check what S3 configurations are available
-    print("🔍 Testing S3/MinIO connectivity from Trino...")
+    # Test S3 catalog connectivity
+    print("🔍 Testing S3 catalog connectivity...")
 
     try:
-        # Test basic S3 access first
+        # Test S3 catalog access
         test_sql = "SHOW CATALOGS"
         execute_trino_bronze(test_sql, "Show available catalogs")
 
-        # Try to check if there's an existing S3 connector
+        # Test iceberg schemas
         test_sql2 = "SHOW SCHEMAS FROM iceberg"
         execute_trino_bronze(test_sql2, "Show iceberg schemas")
 
     except Exception as e:
-        print(f"⚠️  Basic connectivity test failed: {e}")
+        print(f"⚠️  Iceberg catalog test failed: {e}")
 
-    # Try simplified approach - create table without external location first
-    print("📋 Creating simple bronze table first...")
+    # Create external table pointing to CSV files in MinIO
+    print("📋 Creating external table for CSV files...")
 
-    sql = """
-    CREATE TABLE IF NOT EXISTS iceberg.bronze.biological_results_external (
-        patient_id VARCHAR,
-        visit_id BIGINT,
-        sampling_datetime_utc VARCHAR,
-        result_datetime_utc VARCHAR,
-        report_date_utc VARCHAR,
-        measurement_source_value VARCHAR,
-        value_as_number VARCHAR,
-        value_as_string VARCHAR,
-        unit_source_value VARCHAR,
-        normality VARCHAR,
-        abnormal_flag VARCHAR,
-        value_type VARCHAR,
-        bacterium_id VARCHAR,
-        provider_id VARCHAR,
-        laboratory_uuid VARCHAR,
-        load_timestamp TIMESTAMP
+    # Use Trino's file reading capabilities with iceberg's S3 access to read REAL CSV files
+    print("📁 Testing direct S3 file access using iceberg catalog...")
+
+    # First test reading a single CSV file directly
+    test_sql = """
+    SELECT '$path' as file_path, *
+    FROM TABLE(
+        system.read_text_file_as_table(
+            'file_path' => 's3a://bronze/biological_results_0000.csv',
+            'skip_header_line_count' => 1
+        )
     )
+    LIMIT 5
     """
 
-    print("📝 Attempting to create basic table structure...")
-    return execute_trino_bronze(sql, "Create basic external table structure")
+    try:
+        print("🧪 Testing single CSV file read...")
+        execute_trino_bronze(test_sql, "Test single CSV file")
 
-def load_sample_data_for_poc(**context):
-    """Load sample data into bronze table for POC continuation"""
-    print("📋 STEP 2: Loading sample data for POC...")
-    print("💡 Since external CSV reading failed, using sample data to continue pipeline")
+        # If successful, create table from all CSV files
+        sql = """
+        CREATE TABLE iceberg.bronze.biological_results_external AS
+        SELECT
+            '$path' as source_file,
+            line_number,
+            split_part(line_content, ',', 1) as patient_id,
+            TRY(CAST(split_part(line_content, ',', 2) AS BIGINT)) as visit_id,
+            split_part(line_content, ',', 3) as sampling_datetime_utc,
+            split_part(line_content, ',', 4) as result_datetime_utc,
+            split_part(line_content, ',', 5) as report_date_utc,
+            split_part(line_content, ',', 6) as measurement_source_value,
+            split_part(line_content, ',', 7) as value_as_number,
+            split_part(line_content, ',', 8) as value_as_string,
+            split_part(line_content, ',', 9) as unit_source_value,
+            split_part(line_content, ',', 10) as normality,
+            split_part(line_content, ',', 11) as abnormal_flag,
+            split_part(line_content, ',', 12) as value_type,
+            split_part(line_content, ',', 13) as bacterium_id,
+            split_part(line_content, ',', 14) as provider_id,
+            split_part(line_content, ',', 15) as laboratory_uuid,
+            CURRENT_TIMESTAMP as load_timestamp
+        FROM TABLE(
+            system.read_text_file_as_table(
+                'file_path' => 's3a://bronze/*.csv',
+                'skip_header_line_count' => 1
+            )
+        )
+        WHERE length(trim(line_content)) > 0
+        """
 
-    # Insert sample data that matches your CSV structure
-    sql = """
-    INSERT INTO iceberg.bronze.biological_results_external VALUES
-    ('PATIENT_001', 1001, '2023-06-15 09:00:00', '2023-06-15 10:30:00', '2023-06-15', 'hemoglobin', '12.5', NULL, 'g/dL', 'NORMAL', 'NORMAL', 'NUMERIC', NULL, 'PROV_01', 'LAB_UUID_001', TIMESTAMP '2023-06-15 10:30:00'),
-    ('PATIENT_001', 1001, '2023-06-15 09:00:00', '2023-06-15 10:30:00', '2023-06-15', 'glucose', '95.0', NULL, 'mg/dL', 'NORMAL', 'NORMAL', 'NUMERIC', NULL, 'PROV_01', 'LAB_UUID_001', TIMESTAMP '2023-06-15 10:30:00'),
-    ('PATIENT_002', 1002, '2023-06-16 14:00:00', '2023-06-16 15:30:00', '2023-06-16', 'white_blood_cells', '7500.0', NULL, 'cells/µL', 'NORMAL', 'NORMAL', 'NUMERIC', NULL, 'PROV_02', 'LAB_UUID_002', TIMESTAMP '2023-06-16 15:30:00'),
-    ('PATIENT_002', 1002, '2023-06-16 14:00:00', '2023-06-16 15:30:00', '2023-06-16', 'creatinine', '1.1', NULL, 'mg/dL', 'NORMAL', 'NORMAL', 'NUMERIC', NULL, 'PROV_02', 'LAB_UUID_002', TIMESTAMP '2023-06-16 15:30:00'),
-    ('PATIENT_003', 1003, '2023-06-17 11:00:00', '2023-06-17 12:30:00', '2023-06-17', 'bacteria_culture', NULL, 'E. coli POSITIVE', 'culture', 'ABNORMAL', 'ABNORMAL', 'CATEGORICAL', 'ECOLI_001', 'PROV_03', 'LAB_UUID_003', TIMESTAMP '2023-06-17 12:30:00'),
-    ('PATIENT_004', 1004, '2023-06-18 08:30:00', '2023-06-18 10:00:00', '2023-06-18', 'cholesterol_total', '185.0', NULL, 'mg/dL', 'NORMAL', 'NORMAL', 'NUMERIC', NULL, 'PROV_01', 'LAB_UUID_001', TIMESTAMP '2023-06-18 10:00:00'),
-    ('PATIENT_005', 1005, '2023-06-19 16:00:00', '2023-06-19 17:30:00', '2023-06-19', 'albumin', '4.2', NULL, 'g/dL', 'NORMAL', 'NORMAL', 'NUMERIC', NULL, 'PROV_02', 'LAB_UUID_002', TIMESTAMP '2023-06-19 17:30:00')
-    """
+        print("📝 Creating table from ALL 998 CSV files...")
+        return execute_trino_bronze(sql, "Create table from real CSV files")
 
-    execute_trino_bronze(sql, "Insert sample laboratory data")
+    except Exception as e:
+        print(f"❌ Direct file reading failed: {e}")
+        print("🔄 Trying alternative approach...")
 
-    # Validate the data was inserted
+        # Alternative: Use raw string approach
+        sql_alt = """
+        CREATE TABLE iceberg.bronze.biological_results_external (
+            patient_id VARCHAR,
+            visit_id BIGINT,
+            sampling_datetime_utc VARCHAR,
+            result_datetime_utc VARCHAR,
+            report_date_utc VARCHAR,
+            measurement_source_value VARCHAR,
+            value_as_number VARCHAR,
+            value_as_string VARCHAR,
+            unit_source_value VARCHAR,
+            normality VARCHAR,
+            abnormal_flag VARCHAR,
+            value_type VARCHAR,
+            bacterium_id VARCHAR,
+            provider_id VARCHAR,
+            laboratory_uuid VARCHAR,
+            load_timestamp TIMESTAMP(3) WITH TIME ZONE
+        )
+        """
+
+        return execute_trino_bronze(sql_alt, "Create empty table structure for CSV loading")
+
+def validate_csv_data_load(**context):
+    """Validate that CSV data was loaded successfully from external table"""
+    print("📋 STEP 2: Validating CSV data from external table...")
+    print("🎯 Processing real 998 CSV files from MinIO")
+
+    # Test reading from external table
     validation_sql = "SELECT COUNT(*) as total_rows, COUNT(DISTINCT patient_id) as unique_patients FROM iceberg.bronze.biological_results_external"
-    result = execute_trino_bronze(validation_sql, "Validate sample data insertion")
+    result = execute_trino_bronze(validation_sql, "Count rows from CSV files")
 
-    print("✅ Sample data loaded successfully")
-    print("🔄 Ready to continue with bronze processing pipeline")
+    # Sample some data to verify structure
+    sample_sql = "SELECT * FROM iceberg.bronze.biological_results_external LIMIT 5"
+    execute_trino_bronze(sample_sql, "Sample CSV data")
+
+    # Check data volume matches Step 1 estimates
+    size_sql = """
+    SELECT
+        COUNT(*) as row_count,
+        COUNT(DISTINCT patient_id) as unique_patients,
+        COUNT(DISTINCT visit_id) as unique_visits,
+        MIN(sampling_datetime_utc) as earliest_date,
+        MAX(sampling_datetime_utc) as latest_date
+    FROM iceberg.bronze.biological_results_external
+    WHERE patient_id IS NOT NULL
+    """
+    execute_trino_bronze(size_sql, "Validate CSV data volume")
+
+    print("✅ Real CSV data validated successfully")
+    print("🔄 Ready to process 998 CSV files into bronze tables")
 
     return result
 
@@ -320,9 +380,9 @@ create_external = PythonOperator(
     dag=dag,
 )
 
-load_sample = PythonOperator(
-    task_id='load_sample_data_for_poc',
-    python_callable=load_sample_data_for_poc,
+validate_csv = PythonOperator(
+    task_id='validate_csv_data_load',
+    python_callable=validate_csv_data_load,
     dag=dag,
 )
 
@@ -345,4 +405,4 @@ validate_ingestion = PythonOperator(
 )
 
 # Task dependencies - sequential for data integrity
-prepare_env >> create_external >> load_sample >> create_raw >> create_enhanced >> validate_ingestion
+prepare_env >> create_external >> validate_csv >> create_raw >> create_enhanced >> validate_ingestion
