@@ -86,15 +86,38 @@ def start_pipeline(**context):
     return batch_id
 
 def validate_bronze(**context):
-    """Validate bronze data"""
-    sql = """
+    """Validate bronze data exists and is accessible"""
+    # First check if the enhanced table exists
+    sql_check = """
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'bronze'
+    AND table_name = 'biological_results_enhanced'
+    """
+
+    print("🔍 Checking if enhanced bronze table exists...")
+    try:
+        results = execute_trino_query(sql_check, "Check if enhanced table exists")
+        if not results or len(results) == 0:
+            print("❌ Enhanced bronze table not found!")
+            print("💡 Run the 'create_bronze_data' DAG first to create bronze layer")
+            raise Exception("Bronze table biological_results_enhanced not found. Run create_bronze_data DAG first.")
+
+        print("✅ Enhanced bronze table exists")
+    except Exception as e:
+        print(f"❌ Table check failed: {e}")
+        raise
+
+    # Now validate the data
+    sql_validate = """
     SELECT
         COUNT(*) as total_records,
-        COUNT(DISTINCT person_id_hash) as unique_patients
+        COUNT(DISTINCT person_id_hash) as unique_patients,
+        MIN(measurement_date) as earliest_date,
+        MAX(measurement_date) as latest_date
     FROM iceberg.bronze.biological_results_enhanced
-    LIMIT 10
     """
-    return execute_trino_query(sql, "Bronze data validation")
+    return execute_trino_query(sql_validate, "Bronze data validation")
 
 def create_person(**context):
     """Create OMOP Person table"""
