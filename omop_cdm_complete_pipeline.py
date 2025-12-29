@@ -212,7 +212,7 @@ display_transformation = PythonOperator(
 # dbt transformation task with proper path
 run_dbt = BashOperator(
     task_id='run_dbt_omop_models',
-    bash_command='cd /opt/airflow/dags/dbt && dbt run --models silver --full-refresh',
+    bash_command='cd /opt/airflow/dags/repo/dbt && dbt run --models silver --full-refresh',
     dag=dag,
     execution_timeout=timedelta(hours=2),
 )
@@ -220,7 +220,7 @@ run_dbt = BashOperator(
 # dbt testing
 run_dbt_tests = BashOperator(
     task_id='run_dbt_tests',
-    bash_command='cd /opt/airflow/dags/dbt && dbt test',
+    bash_command='cd /opt/airflow/dags/repo/dbt && dbt test',
     dag=dag,
     execution_timeout=timedelta(minutes=30),
 )
