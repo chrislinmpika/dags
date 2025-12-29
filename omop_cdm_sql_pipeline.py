@@ -81,7 +81,7 @@ create_omop_person = BashOperator(
     bash_command='''
 echo "📊 Creating OMOP Person table..."
 
-trino --server=http://trino-coordinator:8080 \
+trino --server=http://my-trino-trino.ns-data-platform.svc.cluster.local:8080 \
       --catalog=iceberg \
       --schema=silver \
       --execute="
@@ -135,7 +135,7 @@ create_omop_visit_occurrence = BashOperator(
     bash_command='''
 echo "📊 Creating OMOP Visit Occurrence table..."
 
-trino --server=http://trino-coordinator:8080 \
+trino --server=http://my-trino-trino.ns-data-platform.svc.cluster.local:8080 \
       --catalog=iceberg \
       --schema=silver \
       --execute="
@@ -182,7 +182,7 @@ create_omop_measurement = BashOperator(
     bash_command='''
 echo "📊 Creating OMOP Measurement table..."
 
-trino --server=http://trino-coordinator:8080 \
+trino --server=http://my-trino-trino.ns-data-platform.svc.cluster.local:8080 \
       --catalog=iceberg \
       --schema=silver \
       --execute="
@@ -246,7 +246,7 @@ create_omop_observation = BashOperator(
     bash_command='''
 echo "📊 Creating OMOP Observation table..."
 
-trino --server=http://trino-coordinator:8080 \
+trino --server=http://my-trino-trino.ns-data-platform.svc.cluster.local:8080 \
       --catalog=iceberg \
       --schema=silver \
       --execute="
@@ -296,25 +296,25 @@ validate_omop_tables = BashOperator(
 echo "🔍 Validating OMOP tables..."
 
 echo "Checking OMOP Person table:"
-trino --server=http://trino-coordinator:8080 \
+trino --server=http://my-trino-trino.ns-data-platform.svc.cluster.local:8080 \
       --catalog=iceberg \
       --schema=silver \
       --execute="SELECT COUNT(*) as person_count FROM iceberg.silver.omop_person"
 
 echo "Checking OMOP Visit Occurrence table:"
-trino --server=http://trino-coordinator:8080 \
+trino --server=http://my-trino-trino.ns-data-platform.svc.cluster.local:8080 \
       --catalog=iceberg \
       --schema=silver \
       --execute="SELECT COUNT(*) as visit_count FROM iceberg.silver.omop_visit_occurrence"
 
 echo "Checking OMOP Measurement table:"
-trino --server=http://trino-coordinator:8080 \
+trino --server=http://my-trino-trino.ns-data-platform.svc.cluster.local:8080 \
       --catalog=iceberg \
       --schema=silver \
       --execute="SELECT COUNT(*) as measurement_count FROM iceberg.silver.omop_measurement"
 
 echo "Checking OMOP Observation table:"
-trino --server=http://trino-coordinator:8080 \
+trino --server=http://my-trino-trino.ns-data-platform.svc.cluster.local:8080 \
       --catalog=iceberg \
       --schema=silver \
       --execute="SELECT COUNT(*) as observation_count FROM iceberg.silver.omop_observation"
