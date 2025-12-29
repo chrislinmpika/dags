@@ -30,6 +30,7 @@ dag = DAG(
     schedule=None,  # Manual trigger after Step 1
     catchup=False,
     tags=['step2', 'bronze', 'ingestion', 'high-volume'],
+    version='v4',  # Force version update for CSV reading fixes
 )
 
 def execute_trino_bronze(sql_query, description):
