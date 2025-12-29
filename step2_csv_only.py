@@ -75,17 +75,23 @@ def execute_trino_query(sql_query, description, catalog='iceberg', schema='defau
             schema=schema,
             # Add memory and timeout properties
             session_properties={
-                'query_max_memory': '8GB',
-                'query_max_memory_per_node': '4GB',
-                'task_concurrency': '4',
-                'join_distribution_type': 'AUTOMATIC'
+                'query_max_memory': '20GB',
+                'query_max_memory_per_node': '12GB',
+                'query_max_total_memory': '24GB',
+                'task_concurrency': '8',
+                'task_writer_count': '4',
+                'task_partitioned_writer_count': '4',
+                'join_distribution_type': 'AUTOMATIC',
+                'spill_enabled': 'true',
+                'spiller_spill_path': '/tmp/trino-spill',
+                'task_max_writer_count': '8'
             }
         )
 
         cursor = conn.cursor()
         start_time = time.time()
 
-        print(f"🔧 Query memory limits: 8GB total, 4GB per node")
+        print(f"🔧 Query memory limits: 20GB total, 12GB per node, spill enabled")
         cursor.execute(sql_query)
 
         if sql_query.strip().upper().startswith('SELECT'):
