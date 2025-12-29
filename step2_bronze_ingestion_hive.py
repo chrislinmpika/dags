@@ -20,17 +20,17 @@ default_args = {
     'owner': 'omop-pipeline',
     'depends_on_past': False,
     'start_date': datetime(2024, 1, 1),
-    'retries': 0,  # No retries - immediate failure for production debugging
+    'retries': 0,
     'retry_delay': timedelta(minutes=5),
 }
 
 dag = DAG(
     'step2_bronze_ingestion_hive',
     default_args=default_args,
-    description='Step 2: Hive external table CSV ingestion for 998 files - v9 (Production Ready)',
-    schedule=None,  # Manual trigger after Step 1
+    description='Step 2: Hive external table CSV ingestion for 998 files - v10 (Trino Syntax Fixed)',
+    schedule=None,
     catchup=False,
-    tags=['step2', 'bronze', 'ingestion', 'hive', 'fast', 'production', 'v9'],
+    tags=['step2', 'bronze', 'ingestion', 'hive', 'fast', 'production', 'v10'],
 )
 
 def execute_trino_query(sql_query, description, catalog='iceberg', schema='default'):
@@ -83,7 +83,7 @@ def prepare_environment(**context):
     print("🏗️  STEP 2: Preparing Hive + Iceberg environments for fast CSV processing...")
 
     # Test Hive catalog connectivity
-    print("\\n🔍 Testing Hive catalog connectivity...")
+    print("\n🔍 Testing Hive catalog connectivity...")
     try:
         hive_catalogs = execute_trino_query("SHOW CATALOGS", "Check available catalogs", catalog='hive')
         print("✅ Hive catalog accessible")
@@ -92,7 +92,7 @@ def prepare_environment(**context):
         raise Exception("Hive catalog required for CSV processing")
 
     # Create Iceberg bronze schema
-    print("\\n📁 Creating Iceberg bronze schema...")
+    print("\n📁 Creating Iceberg bronze schema...")
     sql_iceberg_schema = "CREATE SCHEMA IF NOT EXISTS iceberg.bronze WITH (location = 's3://eds-lakehouse/bronze/')"
     execute_trino_query(sql_iceberg_schema, "Create Iceberg bronze schema", catalog='iceberg')
 
@@ -116,40 +116,40 @@ def prepare_environment(**context):
     return "environment_ready"
 
 def create_hive_external_table(**context):
-    """Create Hive external table pointing to ALL CSV files"""
+    """Create Hive external table pointing to ALL CSV files using Trino syntax"""
     print("📁 STEP 2: Creating Hive external table for ALL 998 CSV files...")
+    print("⚡ Using Trino-compatible syntax (not native Hive DDL)")
 
+    # Trino Hive connector syntax - NO EXTERNAL keyword, use WITH clause
     sql_hive_external = """
-    CREATE EXTERNAL TABLE IF NOT EXISTS hive.default.biological_csv_temp (
-        patient_id STRING,
-        visit_id STRING,
-        sampling_datetime_utc STRING,
-        result_datetime_utc STRING,
-        report_date_utc STRING,
-        measurement_source_value STRING,
-        value_as_number STRING,
-        value_as_string STRING,
-        unit_source_value STRING,
-        normality STRING,
-        abnormal_flag STRING,
-        value_type STRING,
-        bacterium_id STRING,
-        provider_id STRING,
-        laboratory_uuid STRING
+    CREATE TABLE IF NOT EXISTS hive.default.biological_csv_temp (
+        patient_id VARCHAR,
+        visit_id VARCHAR,
+        sampling_datetime_utc VARCHAR,
+        result_datetime_utc VARCHAR,
+        report_date_utc VARCHAR,
+        measurement_source_value VARCHAR,
+        value_as_number VARCHAR,
+        value_as_string VARCHAR,
+        unit_source_value VARCHAR,
+        normality VARCHAR,
+        abnormal_flag VARCHAR,
+        value_type VARCHAR,
+        bacterium_id VARCHAR,
+        provider_id VARCHAR,
+        laboratory_uuid VARCHAR
     )
-    ROW FORMAT DELIMITED
-    FIELDS TERMINATED BY ','
-    STORED AS TEXTFILE
-    LOCATION 's3://bronze/'
-    TBLPROPERTIES (
-        'skip.header.line.count'='1'
+    WITH (
+        external_location = 's3://bronze/',
+        format = 'CSV',
+        skip_header_line_count = 1
     )
     """
 
     result = execute_trino_query(sql_hive_external, "Create Hive external table for CSV files", catalog='hive')
 
     # Test reading from Hive external table
-    print("\\n🧪 Testing Hive external table CSV reading...")
+    print("\n🧪 Testing Hive external table CSV reading...")
     test_count = execute_trino_query(
         "SELECT COUNT(*) FROM hive.default.biological_csv_temp",
         "Count rows from Hive external table",
@@ -211,7 +211,7 @@ def convert_hive_to_iceberg_ctas(**context):
 
         -- Add processing metadata
         CURRENT_TIMESTAMP AS load_timestamp,
-        'step2_hive_to_iceberg_v9' AS processing_batch
+        'step2_hive_to_iceberg_v10' AS processing_batch
 
     FROM hive.default.biological_csv_temp
     WHERE patient_id IS NOT NULL
@@ -246,7 +246,7 @@ def validate_conversion_results(**context):
 
     if count_result:
         iceberg_rows = count_result[0][0]
-        print(f"\\n📈 CONVERSION VALIDATION:")
+        print(f"\n📈 CONVERSION VALIDATION:")
         print(f"   - Expected rows (from CSV): {expected_rows:,}")
         print(f"   - Actual rows (in Iceberg): {iceberg_rows:,}")
 
@@ -276,7 +276,7 @@ def validate_conversion_results(**context):
 
     if quality_result:
         stats = quality_result[0]
-        print(f"\\n🎯 DATA QUALITY SUMMARY:")
+        print(f"\n🎯 DATA QUALITY SUMMARY:")
         print(f"   ✅ Total records: {stats[0]:,}")
         print(f"   ✅ Unique patients: {stats[1]:,}")
         print(f"   ✅ Unique visits: {stats[2]:,}")
@@ -303,7 +303,7 @@ def cleanup_hive_resources(**context):
         print(f"⚠️  Cleanup warning: {e}")
         print("🔧 Manual cleanup may be needed later")
 
-    print("\\n🎉 STEP 2 HIVE → ICEBERG CONVERSION COMPLETED!")
+    print("\n🎉 STEP 2 HIVE → ICEBERG CONVERSION COMPLETED!")
     print("✅ All 998 CSV files converted to optimized Iceberg Parquet")
     print("✅ Processing time: ~3 hours (vs 16+ hours with Python)")
     print("🔄 Ready for Step 3: Data Quality & Silver Layer")
