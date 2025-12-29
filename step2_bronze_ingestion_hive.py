@@ -27,10 +27,10 @@ default_args = {
 dag = DAG(
     'step2_bronze_ingestion_hive',
     default_args=default_args,
-    description='Step 2: Hive external table CSV ingestion for 998 files - v8',
+    description='Step 2: Hive external table CSV ingestion for 998 files - v9 (Production Ready)',
     schedule=None,  # Manual trigger after Step 1
     catchup=False,
-    tags=['step2', 'bronze', 'ingestion', 'hive', 'fast', 'v8'],
+    tags=['step2', 'bronze', 'ingestion', 'hive', 'fast', 'production', 'v9'],
 )
 
 def execute_trino_query(sql_query, description, catalog='iceberg', schema='default'):
@@ -93,7 +93,7 @@ def prepare_environment(**context):
 
     # Create Iceberg bronze schema
     print("\\n📁 Creating Iceberg bronze schema...")
-    sql_iceberg_schema = "CREATE SCHEMA IF NOT EXISTS iceberg.bronze"
+    sql_iceberg_schema = "CREATE SCHEMA IF NOT EXISTS iceberg.bronze WITH (location = 's3://eds-lakehouse/bronze/')"
     execute_trino_query(sql_iceberg_schema, "Create Iceberg bronze schema", catalog='iceberg')
 
     # Drop existing Iceberg bronze tables for clean start
@@ -120,7 +120,7 @@ def create_hive_external_table(**context):
     print("📁 STEP 2: Creating Hive external table for ALL 998 CSV files...")
 
     sql_hive_external = """
-    CREATE TABLE hive.default.biological_csv_temp (
+    CREATE EXTERNAL TABLE IF NOT EXISTS hive.default.biological_csv_temp (
         patient_id STRING,
         visit_id STRING,
         sampling_datetime_utc STRING,
@@ -139,12 +139,10 @@ def create_hive_external_table(**context):
     )
     ROW FORMAT DELIMITED
     FIELDS TERMINATED BY ','
-    LINES TERMINATED BY '\\n'
     STORED AS TEXTFILE
     LOCATION 's3://bronze/'
     TBLPROPERTIES (
-        'skip.header.line.count'='1',
-        'serialization.null.format'=''
+        'skip.header.line.count'='1'
     )
     """
 
@@ -190,7 +188,6 @@ def convert_hive_to_iceberg_ctas(**context):
     CREATE TABLE iceberg.bronze.biological_results_raw
     WITH (
         format = 'PARQUET',
-        partitioning = ARRAY['bucket(patient_id, 32)'],
         location = 's3://eds-lakehouse/bronze/biological_results/'
     )
     AS
@@ -198,11 +195,11 @@ def convert_hive_to_iceberg_ctas(**context):
         -- Type conversions and data cleaning
         patient_id,
         TRY_CAST(visit_id AS BIGINT) AS visit_id,
-        sampling_datetime_utc,
-        result_datetime_utc,
-        report_date_utc,
+        TRY_CAST(sampling_datetime_utc AS TIMESTAMP) AS sampling_datetime_utc,
+        TRY_CAST(result_datetime_utc AS TIMESTAMP) AS result_datetime_utc,
+        TRY_CAST(report_date_utc AS DATE) AS report_date_utc,
         measurement_source_value,
-        value_as_number,
+        TRY_CAST(value_as_number AS DOUBLE) AS value_as_number,
         value_as_string,
         unit_source_value,
         normality,
@@ -214,7 +211,7 @@ def convert_hive_to_iceberg_ctas(**context):
 
         -- Add processing metadata
         CURRENT_TIMESTAMP AS load_timestamp,
-        'step2_hive_to_iceberg_v8' AS processing_batch
+        'step2_hive_to_iceberg_v9' AS processing_batch
 
     FROM hive.default.biological_csv_temp
     WHERE patient_id IS NOT NULL
