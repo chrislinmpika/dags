@@ -26,10 +26,10 @@ default_args = {
 dag = DAG(
     'step2_bronze_ingestion',
     default_args=default_args,
-    description='Step 2: Ingest 998 CSV files into Iceberg bronze tables - v4',
+    description='Step 2: Ingest 998 CSV files into Iceberg bronze tables - v5',
     schedule=None,  # Manual trigger after Step 1
     catchup=False,
-    tags=['step2', 'bronze', 'ingestion', 'high-volume', 'v4'],
+    tags=['step2', 'bronze', 'ingestion', 'high-volume', 'v5'],
 )
 
 def execute_trino_bronze(sql_query, description):
