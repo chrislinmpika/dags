@@ -28,22 +28,23 @@ default_args = {
 dag = DAG(
     'step2_csv_only',
     default_args=default_args,
-    description='Step 2: CSV → Bronze ONLY with CORRECTED COLUMN MAPPING',
+    description='Step 2: CSV → Bronze with 12GB Memory Limits (FIXED)',
     schedule=None,
     catchup=False,
-    tags=['step2', 'bronze', 'csv-only', 'column-mapping-fixed', 'clean'],
+    tags=['step2', 'bronze', 'csv-only', 'memory-optimized', 'v2'],
     doc_md="""
-    ## Clean CSV-Only Pipeline with Corrected Column Mapping
+    ## CSV → Bronze Pipeline - Memory Optimized v2
 
     🎯 FOCUS: Pure CSV → Bronze conversion
-    🔧 FIXED: 27-column mapping to match real CSV structure
-    ⚡ FAST: ~1 hour processing for 634M+ rows
+    🔧 FIXED: 27-column mapping + Trino memory limits
+    ⚡ MEMORY: 12GB per-node (vs 1GB that failed)
+    💾 ENHANCED: Spill-to-disk capability added
     🏗️ CLEAN: No vocabulary dependencies
 
-    This DAG assumes OMOP vocabularies already exist.
-    Use this to test the critical column mapping fix!
+    Previous v1 failed after 22min due to 1GB memory limit.
+    This v2 has 12GB per-node limits for 634M+ row processing.
 
-    Version: csv-only-v1 (Dec 29, 2025)
+    Version: csv-only-v2 (Dec 30, 2025) - Memory Enhanced
     """,
 )
 
