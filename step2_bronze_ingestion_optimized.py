@@ -26,7 +26,7 @@ default_args = {
 }
 
 dag = DAG(
-    'step2_bronze_ingestion_fully_optimized',
+    'step2_bronze_ingestion_optimized',
     default_args=default_args,
     description='Step 2: Fully optimized CSV ingestion v11 - MinIO client fixed',
     schedule=None,
@@ -125,24 +125,34 @@ def process_csv_files_optimized(**context):
     print("🚀 STEP 2 v11: Processing 998 CSV files with FULL optimization...")
     print("⚡ Batch size: 10 files | Insert method: executemany()")
     
-    from minio import Minio
-    import pandas as pd
+    try:
+        from minio import Minio
+        import pandas as pd
+    except ImportError as e:
+        print(f"❌ Required packages not installed: {e}")
+        print("💡 Falling back to boto3 approach...")
+        raise Exception("MinIO/pandas not available - use step2_bronze_ingestion_optimized v7 instead")
+
     import io
     import trino
     from datetime import datetime as dt
     
     # MinIO client
-    minio_client = Minio(
-        "minio-api.ns-data-platform.svc.cluster.local:9000",
-        access_key="minio",
-        secret_key="minio123",
-        secure=False
-    )
-    
-    # Get all CSV files
-    objects = minio_client.list_objects("bronze", recursive=True)
-    csv_files = [obj.object_name for obj in objects if obj.object_name.endswith('.csv')]
-    csv_files.sort()
+    try:
+        minio_client = Minio(
+            "minio-api.ns-data-platform.svc.cluster.local:9000",
+            access_key="minio",
+            secret_key="minio123",
+            secure=False
+        )
+
+        # Test connection and get all CSV files
+        objects = minio_client.list_objects("bronze", recursive=True)
+        csv_files = [obj.object_name for obj in objects if obj.object_name.endswith('.csv')]
+        csv_files.sort()
+    except Exception as e:
+        print(f"❌ MinIO connection failed: {e}")
+        raise Exception(f"Cannot connect to MinIO: {e}")
     
     total_files = len(csv_files)
     print(f"📊 Total CSV files: {total_files}")
