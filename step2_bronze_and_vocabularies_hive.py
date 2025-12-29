@@ -303,6 +303,16 @@ def load_vocabulary_via_hive(**context):
 
         print(f"📄 Using detected CSV separator: '{csv_separator}' ({'tab-separated' if csv_separator == '\t' else 'comma-separated'})")
 
+        # Ensure cleanup before creating final tables
+        try:
+            execute_trino_query(
+                "DROP TABLE IF EXISTS hive.omop_vocab.vocabulary_external",
+                "Clean up any existing vocabulary_external table",
+                catalog='hive', schema='omop_vocab'
+            )
+        except:
+            pass  # Ignore if table doesn't exist
+
         # Create final external tables with detected separator
         execute_trino_query(f"""
             CREATE TABLE hive.omop_vocab.vocabulary_external (
@@ -320,6 +330,17 @@ def load_vocabulary_via_hive(**context):
             )
         """, "Create final VOCABULARY external table", catalog='hive', schema='omop_vocab')
         external_tables_created.append('vocabulary_external')
+
+        # Ensure cleanup of all remaining external tables before creation
+        for table_name in ['concept_external', 'concept_relationship_external']:
+            try:
+                execute_trino_query(
+                    f"DROP TABLE IF EXISTS hive.omop_vocab.{table_name}",
+                    f"Clean up any existing {table_name} table",
+                    catalog='hive', schema='omop_vocab'
+                )
+            except:
+                pass  # Ignore if table doesn't exist
 
         # Create remaining external tables with validated separator and comprehensive error handling
         try:
