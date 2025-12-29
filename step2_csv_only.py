@@ -28,23 +28,23 @@ default_args = {
 dag = DAG(
     'step2_csv_only',
     default_args=default_args,
-    description='Step 2: CSV → Bronze with 12GB Memory Limits (FIXED)',
+    description='Step 2: CSV → Bronze with Session Properties Fixed (v3)',
     schedule=None,
     catchup=False,
-    tags=['step2', 'bronze', 'csv-only', 'memory-optimized', 'v2'],
+    tags=['step2', 'bronze', 'csv-only', 'session-properties-fixed', 'v3'],
     doc_md="""
-    ## CSV → Bronze Pipeline - Memory Optimized v2
+    ## CSV → Bronze Pipeline - Session Properties Fixed v3
 
     🎯 FOCUS: Pure CSV → Bronze conversion
-    🔧 FIXED: 27-column mapping + Trino memory limits
-    ⚡ MEMORY: 12GB per-node (vs 1GB that failed)
-    💾 ENHANCED: Spill-to-disk capability added
+    🔧 FIXED: Invalid session properties that caused immediate failure
+    ⚡ MEMORY: 12GB per-node with valid Trino properties
+    💾 ENHANCED: Spill-to-disk capability with working session config
     🏗️ CLEAN: No vocabulary dependencies
 
-    Previous v1 failed after 22min due to 1GB memory limit.
-    This v2 has 12GB per-node limits for 634M+ row processing.
+    Previous v2 failed immediately due to invalid Trino session properties.
+    This v3 removes task_writer_count, task_partitioned_writer_count, task_max_writer_count.
 
-    Version: csv-only-v2 (Dec 30, 2025) - Memory Enhanced
+    Version: csv-only-v3 (Dec 30, 2025) - Session Properties Fixed
     """,
 )
 
@@ -74,18 +74,15 @@ def execute_trino_query(sql_query, description, catalog='iceberg', schema='defau
             user='airflow',
             catalog=catalog,
             schema=schema,
-            # Add memory and timeout properties
+            # Memory and performance properties (FIXED: removed invalid properties)
             session_properties={
                 'query_max_memory': '20GB',
                 'query_max_memory_per_node': '12GB',
                 'query_max_total_memory': '24GB',
                 'task_concurrency': '8',
-                'task_writer_count': '4',
-                'task_partitioned_writer_count': '4',
                 'join_distribution_type': 'AUTOMATIC',
                 'spill_enabled': 'true',
-                'spiller_spill_path': '/tmp/trino-spill',
-                'task_max_writer_count': '8'
+                'spiller_spill_path': '/tmp/trino-spill'
             }
         )
 
