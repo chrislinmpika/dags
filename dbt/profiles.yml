@@ -5,6 +5,7 @@ trino_eds:
     prod:
       type: trino
       method: none
+      user: airflow
       host: my-trino-trino.ns-data-platform.svc.cluster.local
       port: 8080
       database: iceberg
