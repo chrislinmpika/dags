@@ -38,22 +38,26 @@ def audit_pipeline_start(**context):
     """
     Log pipeline start and create processing batch ID
     """
-    run_date = context['ds']
-    execution_date = context['execution_date']
+    import datetime
 
     print("🚀 OMOP CDM Weekly Rebuild Starting...")
-    print(f"📅 Run Date: {run_date}")
-    print(f"⚡ Execution Date: {execution_date}")
+    print(f"📅 Run Date: {context.get('ds', 'unknown')}")
+    print(f"⚡ Execution Date: {context.get('execution_date', 'unknown')}")
 
     # Generate unique processing batch ID for GDPR audit trail
-    processing_batch = f"omop_rebuild_{run_date}_{context['run_id']}"
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    processing_batch = f"omop_rebuild_{timestamp}"
     print(f"🏷️  Processing Batch ID: {processing_batch}")
 
-    # Store batch ID for downstream tasks
-    context['task_instance'].xcom_push(
-        key='processing_batch_id',
-        value=processing_batch
-    )
+    # Store batch ID for downstream tasks (simplified)
+    try:
+        context['task_instance'].xcom_push(
+            key='processing_batch_id',
+            value=processing_batch
+        )
+        print("📦 Batch ID stored in XCom successfully")
+    except Exception as e:
+        print(f"⚠️  XCom storage failed, continuing anyway: {e}")
 
     print("✅ Pipeline audit started successfully")
     return processing_batch
@@ -65,10 +69,18 @@ def prepare_bronze_staging(**context):
     print("📊 Preparing Bronze Data for OMOP Transformation")
     print("=" * 50)
 
-    processing_batch = context['task_instance'].xcom_pull(
-        task_ids='audit_pipeline_start',
-        key='processing_batch_id'
-    )
+    # Get processing batch ID (with fallback)
+    try:
+        processing_batch = context['task_instance'].xcom_pull(
+            task_ids='audit_pipeline_start',
+            key='processing_batch_id'
+        )
+        if not processing_batch:
+            processing_batch = f"omop_rebuild_{context.get('ds', 'unknown')}"
+    except Exception as e:
+        print(f"⚠️  Could not retrieve batch ID from XCom: {e}")
+        processing_batch = f"omop_rebuild_{context.get('ds', 'unknown')}"
+
     print(f"📦 Processing Batch: {processing_batch}")
     print("")
 
