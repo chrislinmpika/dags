@@ -729,6 +729,28 @@ def execute_proven_csv_ctas(**context):
         if external_rows < 1000000:  # Less than 1M rows
             print(f"⚠️  WARNING: Only {external_rows:,} rows accessible (expected 634M+)")
 
+    # Debug: Check Hive external table data before CTAS
+    try:
+        debug_query = """
+        SELECT
+            COUNT(*) as total_rows,
+            COUNT(CASE WHEN patient_id IS NOT NULL AND patient_id != '' THEN 1 END) as valid_patients,
+            COUNT(CASE WHEN sampling_datetime_utc IS NOT NULL THEN 1 END) as non_null_dates
+        FROM hive.test_ingestion.biological_results_csv_external
+        LIMIT 1
+        """
+        debug_result = execute_trino_query(debug_query, "Debug: Validate Hive external table before CTAS", catalog='hive', schema='test_ingestion')
+        if debug_result and len(debug_result) > 0:
+            total, valid_patients, non_null_dates = debug_result[0]
+            print(f"🔍 PRE-CTAS DEBUG:")
+            print(f"   📊 Total rows in Hive external table: {total:,}")
+            print(f"   👥 Rows with valid patient_id: {valid_patients:,}")
+            print(f"   📅 Rows with non-null dates: {non_null_dates:,}")
+        else:
+            print("⚠️  Could not get debug information from Hive external table")
+    except Exception as e:
+        print(f"⚠️  Debug query failed: {e}")
+
     start_time = datetime.now()
 
     # The proven CTAS operation with ICEBERG-COMPATIBLE optimization
@@ -765,9 +787,19 @@ def execute_proven_csv_ctas(**context):
         provider_id,
         laboratory_uuid,
 
-        -- DERIVED PARTITION COLUMNS (Iceberg-compatible with NULL safety)
-        COALESCE(year(TRY_CAST(sampling_datetime_utc AS TIMESTAMP)), 1900) AS year,
-        COALESCE(month(TRY_CAST(sampling_datetime_utc AS TIMESTAMP)), 1) AS month,
+        -- DERIVED PARTITION COLUMNS (Iceberg-compatible with NULL safety and date format detection)
+        CASE
+            WHEN sampling_datetime_utc IS NOT NULL AND sampling_datetime_utc != ''
+            THEN COALESCE(year(TRY_CAST(sampling_datetime_utc AS TIMESTAMP)),
+                         year(TRY_CAST(sampling_datetime_utc AS DATE)), 1900)
+            ELSE 1900
+        END AS year,
+        CASE
+            WHEN sampling_datetime_utc IS NOT NULL AND sampling_datetime_utc != ''
+            THEN COALESCE(month(TRY_CAST(sampling_datetime_utc AS TIMESTAMP)),
+                         month(TRY_CAST(sampling_datetime_utc AS DATE)), 1)
+            ELSE 1
+        END AS month,
 
         -- Processing metadata
         CURRENT_TIMESTAMP AS load_timestamp
@@ -775,7 +807,7 @@ def execute_proven_csv_ctas(**context):
     FROM hive.test_ingestion.biological_results_csv_external
     WHERE patient_id IS NOT NULL
       AND patient_id != ''
-      AND TRY_CAST(sampling_datetime_utc AS TIMESTAMP) IS NOT NULL  -- Required for partitioning
+      -- More permissive date filtering to avoid filtering out all data
     ORDER BY patient_id, measurement_source_value  -- Clustering via ORDER BY (Iceberg-compatible)
     """
 
@@ -870,7 +902,7 @@ def validate_complete_foundation(**context):
         partitions_sql = """
         SELECT
             COUNT(DISTINCT year) as years_spanned,
-            COUNT(DISTINCT concat(year, '-', month)) as total_partitions,
+            COUNT(DISTINCT CAST(year AS VARCHAR) || '-' || CAST(month AS VARCHAR)) as total_partitions,
             MIN(year) as first_year,
             MAX(year) as last_year
         FROM iceberg.bronze.biological_results_raw
