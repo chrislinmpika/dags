@@ -123,24 +123,23 @@ def process_csv_files_optimized(**context):
     print("🚀 Processing 998 CSV files with FULL optimization...")
     print("⚡ Batch size: 10 files | Insert method: executemany()")
     
-    import boto3
+    from minio import Minio
     import pandas as pd
     import io
     import trino
     from datetime import datetime as dt
     
     # MinIO client
-    s3_client = boto3.client(
-        's3',
-        endpoint_url='http://minio-api.ns-data-platform.svc.cluster.local:9000',
-        aws_access_key_id='minio',
-        aws_secret_access_key='minio123',
-        region_name='us-east-1'
+    minio_client = Minio(
+        "minio-api.ns-data-platform.svc.cluster.local:9000",
+        access_key="minio",
+        secret_key="minio123",
+        secure=False
     )
     
     # Get all CSV files
-    response = s3_client.list_objects_v2(Bucket='bronze')
-    csv_files = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'].endswith('.csv')]
+    objects = minio_client.list_objects("bronze", recursive=True)
+    csv_files = [obj.object_name for obj in objects if obj.object_name.endswith('.csv')]
     csv_files.sort()
     
     total_files = len(csv_files)
@@ -175,7 +174,7 @@ def process_csv_files_optimized(**context):
         batch_dfs = []
         for csv_file in batch_files:
             try:
-                obj = s3_client.get_object(Bucket='bronze', Key=csv_file)
+                obj = minio_client.get_object("bronze", csv_file)
                 df = pd.read_csv(io.BytesIO(obj.read()))
                 df['source_file'] = csv_file
                 batch_dfs.append(df)
