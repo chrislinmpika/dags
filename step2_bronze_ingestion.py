@@ -87,6 +87,7 @@ def prepare_bronze_environment(**context):
 
     # Drop existing bronze tables for clean rebuild
     tables_to_drop = [
+        'biological_results_external',
         'biological_results_raw',
         'biological_results_enhanced'
     ]
@@ -126,67 +127,99 @@ def create_external_csv_table(**context):
     # Use Trino's file reading capabilities with iceberg's S3 access to read REAL CSV files
     print("📁 Testing direct S3 file access using iceberg catalog...")
 
-    # Use a much simpler approach - test if we can access S3 files directly
-    print("🧪 Testing if we can access S3 files with iceberg...")
-
-    # First just check if we can list files
-    test_list = """
-    SELECT '$path', '$file_size', '$file_modified_time'
-    FROM TABLE(system.list_files('s3a://bronze/'))
-    WHERE '$path' LIKE '%.csv'
-    LIMIT 5
-    """
+    # Since Trino iceberg catalog can't read CSV files directly,
+    # use Python to read CSV files from MinIO and insert into iceberg table
+    print("📦 Using Python + boto3 to read REAL CSV files from MinIO...")
 
     try:
-        print("📁 Listing CSV files in S3...")
-        execute_trino_bronze(test_list, "List CSV files in bronze bucket")
+        import boto3
+        import csv
+        import io
 
-        # If that works, try reading file content directly
-        test_read = """
-        SELECT '$path' as file_path, line_number, line_content
-        FROM TABLE(system.read_text_file('s3a://bronze/biological_results_0000.csv'))
-        LIMIT 10
+        # Connect to MinIO using same credentials as Step 1
+        s3_client = boto3.client(
+            's3',
+            endpoint_url='http://minio-api.ns-data-platform.svc.cluster.local:9000',
+            aws_access_key_id='minio',
+            aws_secret_access_key='minio123',
+            region_name='us-east-1'
+        )
+        print("✅ Connected to MinIO via boto3")
+
+        # Create empty iceberg table first
+        sql_create = """
+        CREATE TABLE iceberg.bronze.biological_results_external (
+            source_file VARCHAR,
+            patient_id VARCHAR,
+            visit_id BIGINT,
+            sampling_datetime_utc VARCHAR,
+            result_datetime_utc VARCHAR,
+            report_date_utc VARCHAR,
+            measurement_source_value VARCHAR,
+            value_as_number VARCHAR,
+            value_as_string VARCHAR,
+            unit_source_value VARCHAR,
+            normality VARCHAR,
+            abnormal_flag VARCHAR,
+            value_type VARCHAR,
+            bacterium_id VARCHAR,
+            provider_id VARCHAR,
+            laboratory_uuid VARCHAR,
+            load_timestamp TIMESTAMP(3) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
         """
 
-        print("📄 Testing single file read...")
-        execute_trino_bronze(test_read, "Read single CSV file content")
+        execute_trino_bronze(sql_create, "Create empty iceberg table for CSV data")
+        print("✅ Created empty iceberg table")
 
-        # If successful, create table from CSV data
-        sql = """
-        CREATE TABLE iceberg.bronze.biological_results_external AS
-        SELECT
-            '$path' as source_file,
-            split(line_content, ',')[1] as patient_id,
-            TRY(CAST(split(line_content, ',')[2] AS BIGINT)) as visit_id,
-            split(line_content, ',')[3] as sampling_datetime_utc,
-            split(line_content, ',')[4] as result_datetime_utc,
-            split(line_content, ',')[5] as report_date_utc,
-            split(line_content, ',')[6] as measurement_source_value,
-            split(line_content, ',')[7] as value_as_number,
-            split(line_content, ',')[8] as value_as_string,
-            split(line_content, ',')[9] as unit_source_value,
-            split(line_content, ',')[10] as normality,
-            split(line_content, ',')[11] as abnormal_flag,
-            split(line_content, ',')[12] as value_type,
-            split(line_content, ',')[13] as bacterium_id,
-            split(line_content, ',')[14] as provider_id,
-            split(line_content, ',')[15] as laboratory_uuid,
-            CURRENT_TIMESTAMP as load_timestamp
-        FROM TABLE(system.read_text_file('s3a://bronze/biological_results_0000.csv'))
-        WHERE line_number > 1  -- Skip header
-          AND trim(line_content) != ''
-          AND cardinality(split(line_content, ',')) >= 15
-        """
+        # Read first CSV file to test approach
+        test_file = 'biological_results_0000.csv'
+        print(f"📄 Reading test file: {test_file}")
 
-        print("📝 Creating table from CSV file data...")
-        return execute_trino_bronze(sql, "Create table from real CSV file")
+        response = s3_client.get_object(Bucket='bronze', Key=test_file)
+        content = response['Body'].read().decode('utf-8')
+
+        # Parse CSV content
+        csv_reader = csv.reader(io.StringIO(content))
+        header = next(csv_reader)  # Skip header
+        print(f"📋 CSV header: {header[:5]}...")  # Show first 5 columns
+
+        # Read first few rows and insert them
+        rows_inserted = 0
+        for i, row in enumerate(csv_reader):
+            if i >= 10:  # Just insert first 10 rows as test
+                break
+
+            if len(row) >= 15:  # Ensure we have all columns
+                # Create INSERT statement for this row
+                sql_insert = f"""
+                INSERT INTO iceberg.bronze.biological_results_external (
+                    source_file, patient_id, visit_id, sampling_datetime_utc,
+                    result_datetime_utc, report_date_utc, measurement_source_value,
+                    value_as_number, value_as_string, unit_source_value,
+                    normality, abnormal_flag, value_type, bacterium_id,
+                    provider_id, laboratory_uuid
+                ) VALUES (
+                    '{test_file}', '{row[0]}', {row[1] if row[1].isdigit() else 'NULL'},
+                    '{row[2]}', '{row[3]}', '{row[4]}', '{row[5]}',
+                    '{row[6]}', '{row[7] or 'NULL'}', '{row[8]}',
+                    '{row[9]}', '{row[10]}', '{row[11]}', '{row[12] or 'NULL'}',
+                    '{row[13]}', '{row[14]}'
+                )
+                """
+
+                execute_trino_bronze(sql_insert, f"Insert row {i+1}")
+                rows_inserted += 1
+
+        print(f"✅ Successfully inserted {rows_inserted} rows from {test_file}")
+        return f"success_loaded_{rows_inserted}_rows"
 
     except Exception as e:
-        print(f"❌ Direct file reading failed: {e}")
-        print("🔄 Trying alternative approach...")
+        print(f"❌ Python CSV reading failed: {e}")
+        print("🔄 Falling back to empty table...")
 
-        # Alternative: Use raw string approach
-        sql_alt = """
+        # Fallback: Just create empty table
+        sql_fallback = """
         CREATE TABLE iceberg.bronze.biological_results_external (
             patient_id VARCHAR,
             visit_id BIGINT,
@@ -203,11 +236,11 @@ def create_external_csv_table(**context):
             bacterium_id VARCHAR,
             provider_id VARCHAR,
             laboratory_uuid VARCHAR,
-            load_timestamp TIMESTAMP(3) WITH TIME ZONE
+            load_timestamp TIMESTAMP(3) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
         """
 
-        return execute_trino_bronze(sql_alt, "Create empty table structure for CSV loading")
+        return execute_trino_bronze(sql_fallback, "Create fallback empty table")
 
 def validate_csv_data_load(**context):
     """Validate that CSV data was loaded successfully from external table"""
