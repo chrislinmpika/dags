@@ -29,10 +29,21 @@ default_args = {
 dag = DAG(
     'step2_bronze_and_vocabularies_hive',
     default_args=default_args,
-    description='Step 2: Complete foundation using ULTRA-ROBUST Hive approach v20',
+    description='Step 2: Complete foundation using ULTRA-ROBUST Hive approach v20 - TABLE CLEANUP FIXED',
     schedule=None,
     catchup=False,
-    tags=['step2', 'bronze', 'vocabularies', 'hive', 'ultra-robust', 'v20'],
+    tags=['step2', 'bronze', 'vocabularies', 'hive', 'ultra-robust', 'v20', 'table-cleanup-fix'],
+    doc_md="""
+    ## Ultra-Robust v20 with Iceberg Optimization + Table Cleanup Fix
+
+    Latest fixes applied:
+    - ✅ Removed retries for immediate feedback
+    - ✅ Fixed table already exists error during vocabulary loading
+    - ✅ Iceberg-compatible partitioning and clustering
+    - ✅ Comprehensive error handling and rollback protection
+
+    Version: 24f9ff4 (Dec 29, 21:28)
+    """,
 )
 
 def execute_trino_query(sql_query, description, catalog='iceberg', schema='default'):
