@@ -20,7 +20,7 @@ default_args = {
     'owner': 'omop-pipeline',
     'depends_on_past': False,
     'start_date': datetime(2024, 1, 1),
-    'retries': 1,
+    'retries': 0,  # No retries - immediate failure for production debugging
     'retry_delay': timedelta(minutes=5),
 }
 
