@@ -28,7 +28,7 @@ dag = DAG(
     'step4_gold_datamart',
     default_args=default_args,
     description='Step 4: Silver → Gold Clinical Datamart (v1 - Research Analytics)',
-    schedule=None,
+    schedule=None,  # Manual trigger only
     catchup=False,
     tags=['step4', 'gold', 'datamart', 'clinical-research', 'v1', 'analytics'],
     doc_md="""
