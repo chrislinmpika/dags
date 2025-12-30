@@ -28,22 +28,23 @@ default_args = {
 dag = DAG(
     'step2_csv_only',
     default_args=default_args,
-    description='Step 2: CSV → Bronze with Minimal Session Properties (v4)',
+    description='Step 2: CSV → Bronze with Corrected Mapping (v4)',
     schedule=None,
     catchup=False,
-    tags=['step2', 'bronze', 'csv-only', 'minimal-session-props', 'v4'],
+    tags=['step2', 'bronze', 'csv-only', 'corrected-mapping', 'v4'],
     doc_md="""
-    ## CSV → Bronze Pipeline - Minimal Session Properties v4
+    ## CSV → Bronze Pipeline - Corrected Mapping v4
 
     🎯 FOCUS: Pure CSV → Bronze conversion
-    🔧 FIXED: All invalid session properties removed (spiller_spill_path, spill_enabled)
-    ⚡ MEMORY: 12GB per-node with only essential Trino properties
+    🔧 FIXED: All invalid session properties + 27-column mapping
+    ⚡ MEMORY: Stable session properties, cluster has pod memory limits
     🏗️ CLEAN: No vocabulary dependencies
 
-    Previous v3 failed due to spill-related session properties not existing.
-    This v4 uses only validated properties: memory limits, concurrency, join distribution.
+    Previous versions failed due to session property errors.
+    This v4 has working Trino connection + corrected CSV column mapping.
+    Includes ORDER BY clustering for patient query optimization.
 
-    Version: csv-only-v4 (Dec 30, 2025) - Minimal Session Properties
+    Version: csv-only-v4 (Dec 30, 2025) - Corrected Mapping
     """,
 )
 
