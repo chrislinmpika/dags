@@ -204,10 +204,6 @@ def create_patient_summary(**context):
             MAX(value_as_number) as max_numeric_value,
             STDDEV(value_as_number) as stddev_numeric_value,
 
-            -- Most common units and tests
-            MODE(unit_source_value) as most_common_unit,
-            MODE(measurement_source_value) as most_common_test,
-
             -- Quality indicators
             COUNT(CASE WHEN value_as_number IS NULL AND value_as_string IS NULL THEN 1 END) as missing_value_count,
 
@@ -291,9 +287,9 @@ def create_measurement_trends(**context):
 
             -- Statistical measures
             AVG(value_as_number) as daily_avg_value,
-            PERCENTILE_APPROX(value_as_number, 0.5) as daily_median_value,
-            PERCENTILE_APPROX(value_as_number, 0.25) as daily_p25_value,
-            PERCENTILE_APPROX(value_as_number, 0.75) as daily_p75_value,
+            APPROX_PERCENTILE(value_as_number, 0.5) as daily_median_value,
+            APPROX_PERCENTILE(value_as_number, 0.25) as daily_p25_value,
+            APPROX_PERCENTILE(value_as_number, 0.75) as daily_p75_value,
             MIN(value_as_number) as daily_min_value,
             MAX(value_as_number) as daily_max_value,
             STDDEV(value_as_number) as daily_stddev_value,
@@ -403,14 +399,14 @@ def create_laboratory_analytics(**context):
             -- Numeric value analysis (where available)
             COUNT(CASE WHEN value_as_number IS NOT NULL THEN 1 END) as numeric_result_count,
             AVG(value_as_number) as avg_numeric_result,
-            PERCENTILE_APPROX(value_as_number, 0.5) as median_numeric_result,
+            APPROX_PERCENTILE(value_as_number, 0.5) as median_numeric_result,
             MIN(value_as_number) as min_numeric_result,
             MAX(value_as_number) as max_numeric_result,
             STDDEV(value_as_number) as stddev_numeric_result,
 
             -- Reference range analysis (percentiles as proxy)
-            PERCENTILE_APPROX(value_as_number, 0.025) as p2_5_value,
-            PERCENTILE_APPROX(value_as_number, 0.975) as p97_5_value,
+            APPROX_PERCENTILE(value_as_number, 0.025) as p2_5_value,
+            APPROX_PERCENTILE(value_as_number, 0.975) as p97_5_value,
 
             -- Abnormal result analysis
             COUNT(CASE WHEN measurement_event_id = 4135493 THEN 1 END) as abnormal_result_count,
@@ -425,11 +421,8 @@ def create_laboratory_analytics(**context):
             COUNT(CASE WHEN value_as_number IS NULL AND value_as_string IS NULL THEN 1 END) as missing_value_count,
             ROUND(100.0 * COUNT(CASE WHEN value_as_number IS NULL AND value_as_string IS NULL THEN 1 END) / COUNT(*), 2) as pct_missing,
 
-            -- Patient statistics
-            AVG(COUNT(*)) OVER (PARTITION BY measurement_source_value) as avg_tests_per_patient,
-
             -- Test frequency analysis
-            COUNT(*) / COUNT(DISTINCT person_id) as avg_tests_per_patient_direct,
+            COUNT(*) / COUNT(DISTINCT person_id) as avg_tests_per_patient,
             COUNT(*) / NULLIF(DATE_DIFF('day', MIN(measurement_date), MAX(measurement_date)), 0) as avg_tests_per_day
 
         FROM iceberg.silver.{silver_table}
