@@ -205,7 +205,7 @@ def create_patient_summary(**context):
             STDDEV(value_as_number) as stddev_numeric_value,
 
             -- Quality indicators
-            COUNT(CASE WHEN value_as_number IS NULL AND value_as_string IS NULL THEN 1 END) as missing_value_count,
+            COUNT(CASE WHEN value_as_number IS NULL AND value_source_value IS NULL THEN 1 END) as missing_value_count,
 
             -- Patient activity patterns
             COUNT(DISTINCT YEAR(measurement_date)) as active_years,
@@ -304,7 +304,7 @@ def create_measurement_trends(**context):
             ROUND(100.0 * COUNT(CASE WHEN value_as_number IS NOT NULL THEN 1 END) / COUNT(*), 2) as pct_numeric,
 
             -- Data quality indicators
-            COUNT(CASE WHEN value_as_number IS NULL AND value_as_string IS NULL THEN 1 END) as daily_missing_values
+            COUNT(CASE WHEN value_as_number IS NULL AND value_source_value IS NULL THEN 1 END) as daily_missing_values
 
         FROM iceberg.silver.{silver_table}
         WHERE
@@ -418,8 +418,8 @@ def create_laboratory_analytics(**context):
             ROUND(100.0 * COUNT(CASE WHEN value_as_number IS NOT NULL THEN 1 END) / COUNT(*), 2) as pct_numeric,
 
             -- Data quality metrics
-            COUNT(CASE WHEN value_as_number IS NULL AND value_as_string IS NULL THEN 1 END) as missing_value_count,
-            ROUND(100.0 * COUNT(CASE WHEN value_as_number IS NULL AND value_as_string IS NULL THEN 1 END) / COUNT(*), 2) as pct_missing,
+            COUNT(CASE WHEN value_as_number IS NULL AND value_source_value IS NULL THEN 1 END) as missing_value_count,
+            ROUND(100.0 * COUNT(CASE WHEN value_as_number IS NULL AND value_source_value IS NULL THEN 1 END) / COUNT(*), 2) as pct_missing,
 
             -- Test frequency analysis
             COUNT(*) / COUNT(DISTINCT person_id) as avg_tests_per_patient,
