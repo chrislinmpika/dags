@@ -27,22 +27,24 @@ default_args = {
 dag = DAG(
     'step3_omop_transformation',
     default_args=default_args,
-    description='Step 3: Bronze → Silver OMOP CDM Transformation (v1)',
+    description='Step 3: Bronze → Silver OMOP CDM Transformation (v2 - Schema Fixed)',
     schedule=None,
     catchup=False,
-    tags=['step3', 'silver', 'omop-cdm', 'transformation', 'v1'],
+    tags=['step3', 'silver', 'omop-cdm', 'transformation', 'v2', 'schema-fixed'],
     doc_md="""
-    ## Bronze → Silver OMOP CDM Transformation v1
+    ## Bronze → Silver OMOP CDM Transformation v2
 
     🎯 FOCUS: Transform 634M+ bronze records to OMOP CDM format
     🔧 SOURCE: biological_results_raw_dc6befcb (bronze layer)
-    ⚡ TARGET: OMOP CDM tables (MEASUREMENT, PERSON, VISIT_OCCURRENCE)
-    🏗️ VOCABULARIES: LOINC, UCUM, SNOMED mapping
+    ⚡ TARGET: OMOP CDM MEASUREMENT table (silver layer)
+    🏗️ VOCABULARIES: LOINC, UCUM mapping with available bronze columns
+    🔧 FIXED: Column mapping aligned with actual bronze schema
 
-    Transforms raw laboratory data into standardized OMOP format for clinical research.
-    Creates proper concept mappings and ensures OMOP CDM compliance.
+    Previous v1 failed due to missing columns in bronze schema.
+    This v2 uses only available columns: patient_id, measurement_source_value,
+    value_as_number, unit_source_value, normality, etc.
 
-    Version: omop-v1 (Dec 30, 2025) - Initial OMOP Transformation
+    Version: omop-v2 (Dec 30, 2025) - Schema-Fixed OMOP Transformation
     """,
 )
 
@@ -317,11 +319,11 @@ def transform_bronze_to_omop_measurement(**context):
                 0
             ) AS unit_concept_id,
 
-            -- Range values (normal ranges)
-            TRY_CAST(internal_numerical_reference_min AS DOUBLE) AS range_low,
-            TRY_CAST(internal_numerical_reference_max AS DOUBLE) AS range_high,
+            -- Range values (not available in bronze, set to null for now)
+            CAST(NULL AS DOUBLE) AS range_low,
+            CAST(NULL AS DOUBLE) AS range_high,
 
-            -- Provider and visit (simplified for POC)
+            -- Provider and visit (from bronze schema)
             TRY_CAST(provider_id AS BIGINT) AS provider_id,
             TRY_CAST(visit_id AS BIGINT) AS visit_occurrence_id,
 
