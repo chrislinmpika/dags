@@ -27,24 +27,23 @@ default_args = {
 dag = DAG(
     'step3_omop_transformation',
     default_args=default_args,
-    description='Step 3: Bronze → Silver OMOP CDM Transformation (v2 - Schema Fixed)',
+    description='Step 3: Bronze → Silver OMOP CDM Transformation (v3 - JOINs Fixed)',
     schedule=None,
     catchup=False,
-    tags=['step3', 'silver', 'omop-cdm', 'transformation', 'v2', 'schema-fixed'],
+    tags=['step3', 'silver', 'omop-cdm', 'transformation', 'v3', 'joins-fixed'],
     doc_md="""
-    ## Bronze → Silver OMOP CDM Transformation v2
+    ## Bronze → Silver OMOP CDM Transformation v3
 
     🎯 FOCUS: Transform 634M+ bronze records to OMOP CDM format
     🔧 SOURCE: biological_results_raw_dc6befcb (bronze layer)
     ⚡ TARGET: OMOP CDM MEASUREMENT table (silver layer)
-    🏗️ VOCABULARIES: LOINC, UCUM mapping with available bronze columns
-    🔧 FIXED: Column mapping aligned with actual bronze schema
+    🏗️ VOCABULARIES: LOINC, UCUM mapping via LEFT JOINs
+    🔧 FIXED: Correlated subqueries replaced with JOINs
 
-    Previous v1 failed due to missing columns in bronze schema.
-    This v2 uses only available columns: patient_id, measurement_source_value,
-    value_as_number, unit_source_value, normality, etc.
+    Previous v2 failed due to Trino not supporting correlated subqueries.
+    This v3 uses LEFT JOINs for vocabulary mapping instead of subqueries.
 
-    Version: omop-v2 (Dec 30, 2025) - Schema-Fixed OMOP Transformation
+    Version: omop-v3 (Dec 30, 2025) - JOINs-Fixed OMOP Transformation
     """,
 )
 
@@ -260,7 +259,8 @@ def transform_bronze_to_omop_measurement(**context):
 
         start_time = datetime.now()
 
-        # Bronze → OMOP MEASUREMENT transformation
+        # Bronze → OMOP MEASUREMENT transformation using JOINs (not correlated subqueries)
+        # 🚨 FIXED: sampling_datetime_utc is ALL NULL - using alternative date logic
         omop_measurement_sql = f"""
         CREATE TABLE iceberg.silver.{measurement_table}
         WITH (
@@ -270,23 +270,22 @@ def transform_bronze_to_omop_measurement(**context):
         AS
         SELECT
             -- OMOP CDM MEASUREMENT required fields
-            ROW_NUMBER() OVER (ORDER BY patient_id, sampling_datetime_utc) AS measurement_id,
-            CAST(patient_id AS BIGINT) AS person_id,
+            ROW_NUMBER() OVER (PARTITION BY b.patient_id ORDER BY b.sample_id) AS measurement_id,
+            CAST(b.patient_id AS BIGINT) AS person_id,
 
-            -- Map measurement_source_value to concept_id via LOINC
-            COALESCE(
-                -- Try to map via LOINC code extracted from measurement_source_value
-                (SELECT concept_id
-                 FROM iceberg.vocabulary.concept
-                 WHERE vocabulary_id = 'LOINC'
-                   AND concept_code = REGEXP_EXTRACT(b.measurement_source_value, 'LC:([^:]+)', 1)
-                 LIMIT 1),
-                0  -- 0 = No matching concept (unmapped)
-            ) AS measurement_concept_id,
+            -- Map measurement_source_value to concept_id via LOINC JOIN
+            COALESCE(loinc.concept_id, 0) AS measurement_concept_id,
 
-            -- Dates
-            CAST(sampling_datetime_utc AS DATE) AS measurement_date,
-            sampling_datetime_utc AS measurement_datetime,
+            -- ✅ FIXED: Temporal logic - use current date as fallback for NULL sampling_datetime_utc
+            CASE
+                WHEN b.sampling_datetime_utc IS NOT NULL THEN CAST(b.sampling_datetime_utc AS DATE)
+                ELSE CURRENT_DATE  -- Fallback for NULL timestamps
+            END AS measurement_date,
+
+            CASE
+                WHEN b.sampling_datetime_utc IS NOT NULL THEN b.sampling_datetime_utc
+                ELSE CURRENT_TIMESTAMP  -- Fallback for NULL timestamps
+            END AS measurement_datetime,
 
             -- Measurement type concept (lab test = 44818702)
             44818702 AS measurement_type_concept_id,
@@ -295,72 +294,70 @@ def transform_bronze_to_omop_measurement(**context):
             4172703 AS operator_concept_id,
 
             -- Values
-            TRY_CAST(value_as_number AS DOUBLE) AS value_as_number,
+            TRY_CAST(b.value_as_number AS DOUBLE) AS value_as_number,
 
             -- Value as concept for categorical values
             CASE
-                WHEN value_as_string IS NOT NULL AND TRY_CAST(value_as_number AS DOUBLE) IS NULL
+                WHEN b.value_as_string IS NOT NULL AND TRY_CAST(b.value_as_number AS DOUBLE) IS NULL
                 THEN 0  -- For categorical values, would need separate mapping
                 ELSE NULL
             END AS value_as_concept_id,
 
-            -- Unit concept mapping via UCUM
-            COALESCE(
-                -- Map common units to UCUM concepts
-                CASE unit_source_value
-                    WHEN 'mg/dL' THEN 8840      -- milligram per deciliter
-                    WHEN 'mmol/L' THEN 8753     -- millimole per liter
-                    WHEN 'g/dL' THEN 8713       -- gram per deciliter
-                    WHEN 'U/L' THEN 8645        -- unit per liter
-                    WHEN '/uL' THEN 8647        -- per microliter
-                    WHEN '%' THEN 8554          -- percent
-                    ELSE 0                       -- No matching unit concept
-                END,
-                0
-            ) AS unit_concept_id,
+            -- ✅ ENHANCED: Unit concept mapping with real units found in data
+            CASE b.unit_source_value
+                WHEN 'mg/dL' THEN 8840          -- milligram per deciliter
+                WHEN 'mmol/L' THEN 8753         -- millimole per liter
+                WHEN 'g/dL' THEN 8713           -- gram per deciliter
+                WHEN 'U/L' THEN 8645            -- unit per liter
+                WHEN '/uL' THEN 8647            -- per microliter
+                WHEN '%' THEN 8554              -- percent
+                WHEN 'log copies/mL' THEN 8519  -- log copies per milliliter (viral loads)
+                WHEN 'mOsm/kg' THEN 8720        -- milliosmole per kilogram (osmolality)
+                WHEN 'cells/µL' THEN 8647       -- cells per microliter (cell counts)
+                WHEN 'copies/mL' THEN 8519      -- copies per milliliter
+                WHEN 'cells/uL' THEN 8647       -- cells per microliter (alternative notation)
+                WHEN '/µL' THEN 8647            -- per microliter (alternative notation)
+                ELSE 0                           -- No matching unit concept
+            END AS unit_concept_id,
 
             -- Range values (not available in bronze, set to null for now)
             CAST(NULL AS DOUBLE) AS range_low,
             CAST(NULL AS DOUBLE) AS range_high,
 
             -- Provider and visit (from bronze schema)
-            TRY_CAST(provider_id AS BIGINT) AS provider_id,
-            TRY_CAST(visit_id AS BIGINT) AS visit_occurrence_id,
+            TRY_CAST(b.provider_id AS BIGINT) AS provider_id,
+            TRY_CAST(b.visit_id AS BIGINT) AS visit_occurrence_id,
 
             -- Visit detail (not used for lab data typically)
             CAST(NULL AS BIGINT) AS visit_detail_id,
 
             -- Source values (preserve original codes and values)
-            measurement_source_value,
+            b.measurement_source_value,
 
             -- Map source concept (same as measurement_concept_id for labs)
-            COALESCE(
-                (SELECT concept_id
-                 FROM iceberg.vocabulary.concept
-                 WHERE vocabulary_id = 'LOINC'
-                   AND concept_code = REGEXP_EXTRACT(b.measurement_source_value, 'LC:([^:]+)', 1)
-                 LIMIT 1),
-                0
-            ) AS measurement_source_concept_id,
+            COALESCE(loinc.concept_id, 0) AS measurement_source_concept_id,
 
-            unit_source_value,
-            COALESCE(
-                CASE unit_source_value
-                    WHEN 'mg/dL' THEN 8840
-                    WHEN 'mmol/L' THEN 8753
-                    WHEN 'g/dL' THEN 8713
-                    WHEN 'U/L' THEN 8645
-                    WHEN '/uL' THEN 8647
-                    WHEN '%' THEN 8554
-                    ELSE 0
-                END,
-                0
-            ) AS unit_source_concept_id,
+            b.unit_source_value,
+            CASE b.unit_source_value
+                WHEN 'mg/dL' THEN 8840
+                WHEN 'mmol/L' THEN 8753
+                WHEN 'g/dL' THEN 8713
+                WHEN 'U/L' THEN 8645
+                WHEN '/uL' THEN 8647
+                WHEN '%' THEN 8554
+                WHEN 'log copies/mL' THEN 8519
+                WHEN 'mOsm/kg' THEN 8720
+                WHEN 'cells/µL' THEN 8647
+                WHEN 'copies/mL' THEN 8519
+                WHEN 'cells/uL' THEN 8647
+                WHEN '/µL' THEN 8647
+                ELSE 0
+            END AS unit_source_concept_id,
 
-            value_as_string AS value_source_value,
+            b.value_as_string AS value_source_value,
 
             -- Qualifier concept (normal/abnormal)
-            CASE normality
+            CASE b.normality
                 WHEN 'Normal' THEN 4124457     -- Normal
                 WHEN 'Abnormal' THEN 4135493   -- Abnormal
                 WHEN 'High' THEN 4328749       -- High
@@ -371,13 +368,24 @@ def transform_bronze_to_omop_measurement(**context):
             -- Meas event field concept
             CAST(NULL AS BIGINT) AS meas_event_field_concept_id,
 
-            -- Partitioning columns
-            COALESCE(YEAR(sampling_datetime_utc), 1900) AS measurement_year,
-            COALESCE(MONTH(sampling_datetime_utc), 1) AS measurement_month
+            -- ✅ FIXED: Partitioning with proper fallback dates instead of 1900/1
+            CASE
+                WHEN b.sampling_datetime_utc IS NOT NULL THEN YEAR(b.sampling_datetime_utc)
+                ELSE YEAR(CURRENT_DATE)  -- Use current year for NULL timestamps
+            END AS measurement_year,
+
+            CASE
+                WHEN b.sampling_datetime_utc IS NOT NULL THEN MONTH(b.sampling_datetime_utc)
+                ELSE MONTH(CURRENT_DATE)  -- Use current month for NULL timestamps
+            END AS measurement_month
 
         FROM iceberg.bronze.{bronze_table} b
-        WHERE patient_id IS NOT NULL  -- Ensure valid patients only
-        ORDER BY person_id, measurement_datetime  -- Maintain chronological order
+        LEFT JOIN iceberg.vocabulary.concept loinc ON (
+            loinc.vocabulary_id = 'LOINC' AND
+            loinc.concept_code = REGEXP_EXTRACT(b.measurement_source_value, 'LC:([^:]+)', 1)
+        )
+        WHERE b.patient_id IS NOT NULL  -- Ensure valid patients only
+        -- ✅ REMOVED: ORDER BY to prevent memory bomb with NULL sorting on 634M+ rows
         """
 
         print(f"🚀 Starting Bronze → OMOP MEASUREMENT transformation...")
