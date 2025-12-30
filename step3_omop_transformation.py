@@ -270,7 +270,7 @@ def transform_bronze_to_omop_measurement(**context):
         AS
         SELECT
             -- ✅ MEMORY OPTIMIZED: Simple hash-based ID instead of memory-intensive ROW_NUMBER()
-            ABS(XXHASH64(CONCAT(b.patient_id, b.laboratory_uuid, b.measurement_source_value))) AS measurement_id,
+            ABS(XXHASH64(TO_UTF8(CONCAT(b.patient_id, '_', b.laboratory_uuid, '_', b.measurement_source_value)))) AS measurement_id,
             TRY_CAST(b.patient_id AS BIGINT) AS person_id,  -- ✅ SAFE: Use TRY_CAST for patient_id conversion
 
             -- ✅ MEMORY OPTIMIZED: Simplified concept mapping (vocabulary JOIN removed for memory efficiency)
